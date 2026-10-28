@@ -22,6 +22,45 @@ export default function LoginPage() {
     }
   };
 
+  const formatAuthError = (err) => {
+    const code = err.code || '';
+    const msg = err.message || '';
+
+    if (code === 'auth/configuration-not-found' || msg.includes('configuration-not-found')) {
+      return (
+        <div>
+          <span className="font-bold block mb-1">Firebase Authentication Not Initialized</span>
+          <span>Authentication is not enabled yet in your Firebase Console. Go to </span>
+          <a 
+            href="https://console.firebase.google.com/project/pulsenayaruvi/authentication" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="underline font-bold text-danger hover:opacity-80"
+          >
+            Firebase Console &gt; Authentication
+          </a>
+          <span>, click <strong>Get Started</strong>, and enable <strong>Email/Password</strong> and <strong>Google</strong> sign-in providers.</span>
+        </div>
+      );
+    }
+    if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
+      return "This email is already registered. Please click 'Sign in' below to access your account.";
+    }
+    if (code === 'auth/user-not-found' || code === 'auth/invalid-credential' || msg.includes('invalid-credential') || msg.includes('user-not-found')) {
+      return "Account not found or invalid credentials. If you haven't created an account yet, click 'Sign up' below.";
+    }
+    if (code === 'auth/wrong-password') {
+      return "Incorrect password. Please try again.";
+    }
+    if (code === 'auth/popup-closed-by-user') {
+      return "Sign-in popup was closed before completion.";
+    }
+    if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+      return "This domain (localhost) is not authorized in Firebase Console > Authentication > Settings > Authorized domains.";
+    }
+    return err.message || `Failed to sign ${isSignUp ? 'up' : 'in'}. Please check your credentials.`;
+  };
+
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     setError('');
@@ -36,23 +75,20 @@ export default function LoginPage() {
       }
       handleRedirect();
     } catch (err) {
-      if (err.message && err.message.includes('email-already-in-use')) {
-        setError("This email is already registered. Please click 'Sign in' below to access your account.");
-      } else {
-        setError(err.message || `Failed to sign ${isSignUp ? 'up' : 'in'}. Please check your credentials.`);
-      }
+      setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
+    setError('');
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       handleRedirect();
     } catch (err) {
-      setError(err.message || 'Failed to sign in with Google.');
+      setError(formatAuthError(err));
     }
   };
 
