@@ -11,7 +11,7 @@ import LoginPage from './components/LoginPage';
 import { auth, db } from './firebase';
 import { ref, get } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
-import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import InviteHandler from './components/InviteHandler';
 import WorkspaceInviteHandler from './components/WorkspaceInviteHandler';
@@ -24,10 +24,20 @@ function MainApp() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1280);
   const [user, setUser] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'Dashboard');
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(searchParams.get('ws') || null);
   const [activeProjectId, setActiveProjectId] = useState(searchParams.get('proj') || null);
   const [loading, setLoading] = useState(true);
+
+  // If URL has invite parameters, forward to invite route
+  useEffect(() => {
+    const inviteId = searchParams.get('invite');
+    const wsId = searchParams.get('workspaceId');
+    if (inviteId) {
+      navigate(`/invite/${inviteId}${wsId ? `?workspaceId=${wsId}` : ''}`, { replace: true });
+    }
+  }, [searchParams, navigate]);
   const [selectedTaskForModal, setSelectedTaskForModal] = useState(null);
 
   // Profile Modal State & User Profile Details

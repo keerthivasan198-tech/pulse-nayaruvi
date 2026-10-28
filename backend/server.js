@@ -85,7 +85,7 @@ app.post('/api/invite', async (req, res) => {
 
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/invite/${projectId}?workspaceId=${workspaceId}`;
+    const inviteLink = `${process.env.FRONTEND_URL || 'https://pulse-nayaruvi.vercel.app'}/invite/${projectId}?workspaceId=${workspaceId}`;
 
     const mailOptions = {
       from: `"Nayaruvi Pulse" <${process.env.SMTP_USER || 'noreply@nayaruvi.com'}>`,

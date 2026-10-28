@@ -126,11 +126,22 @@ export async function deleteWorkspace(id) {
 
 export async function addWorkspaceMember(workspaceId, { uid, name, email, role }) {
   if (!workspaceId || !uid) return;
+  let memberRole = role || 'Member';
+  try {
+    const existingSnap = await get(ref(db, `workspaces/${workspaceId}/members/${uid}`));
+    if (existingSnap.exists()) {
+      const existing = existingSnap.val();
+      if (existing?.role && (existing.role === 'Founder' || existing.role === 'Admin')) {
+        memberRole = existing.role;
+      }
+    }
+  } catch (e) {}
+
   const memberData = {
     uid,
     name: name || (email ? email.split('@')[0] : 'User'),
     email: email || '',
-    role: role || 'Member'
+    role: memberRole
   };
   await set(ref(db, `workspaces/${workspaceId}/members/${uid}`), memberData);
   await set(ref(db, `user_workspaces/${uid}/${workspaceId}`), {
@@ -226,42 +237,66 @@ export function subscribeToProjects(workspaceId, uid, callback) {
   });
 }
 
-export async function getProject(workspaceId, projectId) {
-  const pId = projectId || workspaceId;
-  const wId = projectId ? workspaceId : null;
+export async function getProject(param1, param2) {
+  if (!param1 && !param2) return null;
 
-  if (wId && pId) {
-    const snap = await get(ref(db, `workspaces/${wId}/projects/${pId}`));
-    if (snap.exists()) {
-      const data = snap.val();
-      return { 
-        _id: pId, 
-        id: pId, 
-        workspaceId: wId,
-        ...data, 
-        members: data.members ? Object.values(data.members) : [],
-        invites: data.invites ? Object.values(data.invites) : []
-      };
-    }
-  }
-
-  // Fallback: search all workspaces if workspaceId not provided
-  const wsSnap = await get(ref(db, 'workspaces'));
-  if (wsSnap.exists()) {
-    const allWs = wsSnap.val();
-    for (const wsKey of Object.keys(allWs)) {
-      if (allWs[wsKey]?.projects && allWs[wsKey].projects[pId]) {
-        const data = allWs[wsKey].projects[pId];
+  // Case 1: Both workspaceId and projectId provided
+  if (param1 && param2) {
+    // Try param1 as workspaceId, param2 as projectId
+    try {
+      const snap1 = await get(ref(db, `workspaces/${param1}/projects/${param2}`));
+      if (snap1.exists()) {
+        const data = snap1.val();
         return { 
-          _id: pId, 
-          id: pId, 
-          workspaceId: wsKey,
+          _id: param2, 
+          id: param2, 
+          workspaceId: param1,
           ...data, 
           members: data.members ? Object.values(data.members) : [],
           invites: data.invites ? Object.values(data.invites) : []
         };
       }
+    } catch (e) {}
+
+    // Try reverse: param2 as workspaceId, param1 as projectId
+    try {
+      const snap2 = await get(ref(db, `workspaces/${param2}/projects/${param1}`));
+      if (snap2.exists()) {
+        const data = snap2.val();
+        return { 
+          _id: param1, 
+          id: param1, 
+          workspaceId: param2,
+          ...data, 
+          members: data.members ? Object.values(data.members) : [],
+          invites: data.invites ? Object.values(data.invites) : []
+        };
+      }
+    } catch (e) {}
+  }
+
+  // Case 2: Only 1 parameter or not found directly -> search all workspaces
+  const targetProjectId = param2 || param1;
+  try {
+    const wsSnap = await get(ref(db, 'workspaces'));
+    if (wsSnap.exists()) {
+      const allWs = wsSnap.val();
+      for (const wsKey of Object.keys(allWs)) {
+        if (allWs[wsKey]?.projects && allWs[wsKey].projects[targetProjectId]) {
+          const data = allWs[wsKey].projects[targetProjectId];
+          return { 
+            _id: targetProjectId, 
+            id: targetProjectId, 
+            workspaceId: wsKey,
+            ...data, 
+            members: data.members ? Object.values(data.members) : [],
+            invites: data.invites ? Object.values(data.invites) : []
+          };
+        }
+      }
     }
+  } catch (e) {
+    console.error("Workspace scan project lookup failed:", e);
   }
   return null;
 }
@@ -291,11 +326,23 @@ export async function addProjectMember(workspaceId, projectId, memberData) {
   }
   if (!wId || !pId || !mData?.uid) return;
 
+  // Check if member already exists to preserve elevated role
+  let memberRole = mData.role || 'Member';
+  try {
+    const existingSnap = await get(ref(db, `workspaces/${wId}/projects/${pId}/members/${mData.uid}`));
+    if (existingSnap.exists()) {
+      const existing = existingSnap.val();
+      if (existing?.role && (existing.role === 'Founder' || existing.role === 'Admin')) {
+        memberRole = existing.role;
+      }
+    }
+  } catch (e) {}
+
   const data = {
     uid: mData.uid,
     name: mData.name || (mData.email ? mData.email.split('@')[0] : 'User'),
     email: mData.email || '',
-    role: mData.role || 'Member',
+    role: memberRole,
     joinedAt: mData.joinedAt || new Date().toISOString()
   };
   await set(ref(db, `workspaces/${wId}/projects/${pId}/members/${mData.uid}`), data);
@@ -336,30 +383,20 @@ export async function inviteProjectMember(workspaceId, projectId, { email, name,
 }
 
 export async function acceptProjectInvite(workspaceId, projectId, user) {
-  if (!workspaceId || !projectId || !user?.uid) return;
+  if (!workspaceId || !projectId || !user?.uid) {
+    throw new Error("workspaceId, projectId, and user are required to accept invite");
+  }
 
-  const memberPayload = {
-    uid: user.uid,
-    name: user.displayName || user.email?.split('@')[0] || 'User',
-    email: user.email || '',
-    role: 'Member',
-    joinedAt: new Date().toISOString()
-  };
-
-  // 1. Add to workspace
-  await addWorkspaceMember(workspaceId, memberPayload);
-
-  // 2. Add to project
-  await addProjectMember(workspaceId, projectId, memberPayload);
-
-  // 3. Mark invite as accepted if exists
+  // 1. Inherit role from invite record if available
+  let assignedRole = 'Member';
+  const userEmail = (user.email || '').toLowerCase().trim();
   try {
     const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
     if (invitesSnap.exists()) {
       const invites = invitesSnap.val();
-      const userEmail = (user.email || '').toLowerCase();
       for (const [key, inv] of Object.entries(invites)) {
-        if (inv.email === userEmail) {
+        if (inv.email && inv.email.toLowerCase().trim() === userEmail) {
+          if (inv.role) assignedRole = inv.role;
           await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${key}`), {
             status: 'Accepted',
             acceptedAt: new Date().toISOString(),
@@ -369,18 +406,36 @@ export async function acceptProjectInvite(workspaceId, projectId, user) {
       }
     }
   } catch (e) {
-    console.warn("Could not update invite status:", e);
+    console.warn("Could not check/update invite status:", e);
   }
 
+  const memberPayload = {
+    uid: user.uid,
+    name: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
+    email: user.email || '',
+    role: assignedRole,
+    joinedAt: new Date().toISOString()
+  };
+
+  // 2. Add to workspace
+  await addWorkspaceMember(workspaceId, memberPayload);
+
+  // 3. Add to project
+  await addProjectMember(workspaceId, projectId, memberPayload);
+
   // 4. Log activity
-  await logActivity({
-    user: memberPayload.name,
-    action: 'joined project via invite link',
-    target: 'Project',
-    workspaceId,
-    projectId,
-    type: 'join'
-  });
+  try {
+    await logActivity({
+      user: memberPayload.name,
+      action: 'joined project via invite link',
+      target: 'Project',
+      workspaceId,
+      projectId,
+      type: 'member_joined'
+    });
+  } catch (e) {
+    console.warn("Could not log activity:", e);
+  }
 
   return memberPayload;
 }

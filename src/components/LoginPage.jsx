@@ -1,20 +1,24 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from 'firebase/auth';
-import { Mail, Lock, LogIn, CheckCircle2, ChevronRight, Activity, AlertCircle, User } from 'lucide-react';
+import { Mail, Lock, LogIn, CheckCircle2, ChevronRight, Activity, AlertCircle, User, UserPlus } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
-export default function LoginPage() {
-  const [email, setEmail] = useState('');
+export default function LoginPage({ inviteInfo }) {
+  const [searchParams] = useSearchParams();
+  const [email, setEmail] = useState(searchParams.get('email') || '');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [searchParams] = useSearchParams();
+  const [isSignUp, setIsSignUp] = useState(searchParams.get('signup') === 'true');
   const navigate = useNavigate();
 
   const handleRedirect = () => {
+    if (inviteInfo) {
+      // The parent InviteHandler will immediately handle the authentication change
+      return;
+    }
     const inviteId = searchParams.get('invite');
     const wsId = searchParams.get('workspaceId');
     if (inviteId) {
@@ -134,6 +138,22 @@ export default function LoginPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-12 bg-background relative">
         <div className="w-full max-w-[420px]">
           
+          {(inviteInfo || searchParams.get('invite')) && (
+            <div className="mb-6 p-4 rounded-2xl bg-[#274245]/10 border border-[#274245]/20 text-text-primary text-sm flex items-start space-x-3.5 shadow-sm">
+              <div className="p-2.5 bg-[#274245] rounded-xl text-[#DFD6AE] shrink-0 mt-0.5 shadow-xs">
+                <UserPlus size={18} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-[#274245]">
+                  {inviteInfo?.type === 'workspace' ? 'Workspace Invitation' : 'Project Invitation'}
+                </h4>
+                <p className="text-xs text-[#5C6E6F] mt-1 leading-relaxed">
+                  You've been invited to join this {inviteInfo?.type === 'workspace' ? 'workspace' : 'project'}. Please {isSignUp ? 'sign up' : 'sign in'} with your email to accept and start collaborating.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-text-primary mb-2">
               {isSignUp ? 'Create an account' : 'Welcome back'}
