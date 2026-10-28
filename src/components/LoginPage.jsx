@@ -43,6 +43,23 @@ export default function LoginPage() {
         </div>
       );
     }
+    if (code === 'auth/operation-not-allowed' || msg.includes('operation-not-allowed')) {
+      return (
+        <div>
+          <span className="font-bold block mb-1">Sign-In Method Not Enabled</span>
+          <span>This sign-in provider is disabled in Firebase. Go to </span>
+          <a 
+            href="https://console.firebase.google.com/project/pulsenayaruvi/authentication/providers" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="underline font-bold text-danger hover:opacity-80"
+          >
+            Firebase Console &gt; Sign-in method
+          </a>
+          <span>, click <strong>Email/Password</strong>, toggle <strong>Enable</strong> to ON, and click <strong>Save</strong>. (Do the same for <strong>Google</strong> if you plan to use Google Sign-In).</span>
+        </div>
+      );
+    }
     if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
       return "This email is already registered. Please click 'Sign in' below to access your account.";
     }
