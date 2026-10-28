@@ -151,7 +151,7 @@ export async function removeWorkspaceMember(workspaceId, uid) {
 }
 
 // ==========================================
-// 2. PROJECTS (Hierarchical per Workspace)
+// 2. PROJECTS (Hierarchical per Workspace ONLY)
 // Path: /workspaces/{workspaceId}/projects/{projectId}
 // ==========================================
 
@@ -180,20 +180,13 @@ export async function createProject({ title, status, workspaceId, uid, email, di
     }
   };
 
-  // Write to hierarchical location
+  // Write strictly to workspace branch
   await set(projRef, projectData);
-
-  // Backward-compatibility mirror to top-level /projects
-  try {
-    await set(ref(db, `projects/${key}`), projectData);
-  } catch (e) {}
-
   return projectData;
 }
 
 export async function getProjects(workspaceId, uid) {
   if (!workspaceId) return [];
-  // 1. Check workspace branch
   const snapshot = await get(ref(db, `workspaces/${workspaceId}/projects`));
   if (snapshot.exists()) {
     const all = snapshot.val();
@@ -206,21 +199,6 @@ export async function getProjects(workspaceId, uid) {
         membersList: all[key].members ? Object.values(all[key].members) : []
       }));
   }
-
-  // 2. Fallback to top-level /projects
-  const legacySnap = await get(ref(db, 'projects'));
-  if (legacySnap.exists()) {
-    const all = legacySnap.val();
-    return Object.keys(all)
-      .filter(key => all[key].workspaceId === workspaceId && (!uid || (all[key].members && all[key].members[uid])))
-      .map(key => ({
-        _id: key,
-        id: key,
-        ...all[key],
-        membersList: all[key].members ? Object.values(all[key].members) : []
-      }));
-  }
-
   return [];
 }
 
@@ -241,108 +219,65 @@ export function subscribeToProjects(workspaceId, uid, callback) {
         }));
       callback(list);
     } else {
-      // Fallback check top-level /projects
-      get(ref(db, 'projects')).then((legSnap) => {
-        if (legSnap.exists()) {
-          const all = legSnap.val();
-          const list = Object.keys(all)
-            .filter(key => all[key].workspaceId === workspaceId && (!uid || (all[key].members && all[key].members[uid])))
-            .map(key => ({
-              _id: key,
-              id: key,
-              ...all[key],
-              membersList: all[key].members ? Object.values(all[key].members) : []
-            }));
-          callback(list);
-        } else {
-          callback([]);
-        }
-      }).catch(() => callback([]));
+      callback([]);
     }
   });
 }
 
 export async function getProject(workspaceId, projectId) {
-  // If only 1 argument provided as projectId
   const pId = projectId || workspaceId;
   const wId = projectId ? workspaceId : null;
 
-  if (wId) {
+  if (wId && pId) {
     const snap = await get(ref(db, `workspaces/${wId}/projects/${pId}`));
     if (snap.exists()) {
       const data = snap.val();
       return { _id: pId, id: pId, ...data, members: data.members ? Object.values(data.members) : [] };
     }
   }
-
-  // Fallback to top-level /projects
-  const legacySnap = await get(ref(db, `projects/${pId}`));
-  if (legacySnap.exists()) {
-    const data = legacySnap.val();
-    return { _id: pId, id: pId, ...data, members: data.members ? Object.values(data.members) : [] };
-  }
-
   return null;
 }
 
 export async function updateProject(workspaceId, projectId, updates) {
-  if (!projectId) return;
-  if (workspaceId) {
-    await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}`), updates);
-  }
-  await update(ref(db, `projects/${projectId}`), updates).catch(() => {});
+  if (!workspaceId || !projectId) return;
+  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}`), updates);
 }
 
 export async function deleteProject(workspaceId, projectId) {
-  if (!projectId) return;
-  if (workspaceId) {
-    await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}`));
-  }
-  await remove(ref(db, `projects/${projectId}`)).catch(() => {});
+  if (!workspaceId || !projectId) return;
+  await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}`));
 }
 
 export async function addProjectMember(workspaceId, projectId, { uid, name, email, role }) {
-  if (!projectId || !uid) return;
+  if (!workspaceId || !projectId || !uid) return;
   const memberData = {
     uid,
     name: name || (email ? email.split('@')[0] : 'User'),
     email: email || '',
     role: role || 'Member'
   };
-  if (workspaceId) {
-    await set(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`), memberData);
-  }
-  await set(ref(db, `projects/${projectId}/members/${uid}`), memberData).catch(() => {});
+  await set(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`), memberData);
 }
 
 export async function updateProjectMemberRole(workspaceId, projectId, uid, role) {
-  if (!projectId || !uid) return;
-  if (workspaceId) {
-    await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`), { role });
-  }
-  await update(ref(db, `projects/${projectId}/members/${uid}`), { role }).catch(() => {});
+  if (!workspaceId || !projectId || !uid) return;
+  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`), { role });
 }
 
 export async function removeProjectMember(workspaceId, projectId, uid) {
-  if (!projectId || !uid) return;
-  if (workspaceId) {
-    await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`));
-  }
-  await remove(ref(db, `projects/${projectId}/members/${uid}`)).catch(() => {});
+  if (!workspaceId || !projectId || !uid) return;
+  await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`));
 }
 
 // ==========================================
-// 3. TASKS (Hierarchical per Project in Workspace)
+// 3. TASKS (Hierarchical per Project in Workspace ONLY)
 // Path: /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}
 // ==========================================
 
 export async function createTask(workspaceId, projectId, taskData) {
-  if (!projectId) throw new Error('projectId is required to create a task');
+  if (!workspaceId || !projectId) throw new Error('workspaceId and projectId are required to create a task');
 
-  const baseRef = workspaceId 
-    ? ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks`)
-    : ref(db, 'dashboard_tasks');
-    
+  const baseRef = ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks`);
   const newTaskRef = push(baseRef);
   const key = newTaskRef.key;
 
@@ -351,74 +286,32 @@ export async function createTask(workspaceId, projectId, taskData) {
     id: key,
     _id: key,
     projectId,
-    workspaceId: workspaceId || taskData.workspaceId || null,
+    workspaceId,
     createdAt: taskData.createdAt || new Date().toISOString()
   };
 
   await set(newTaskRef, fullTask);
-
-  // Keep mirrored copy in /dashboard_tasks so existing views and notification managers continue working seamlessly
-  try {
-    await set(ref(db, `dashboard_tasks/${key}`), fullTask);
-  } catch (e) {}
-
   return fullTask;
 }
 
 export async function updateTask(workspaceId, projectId, taskId, updates) {
-  if (!taskId) return;
-  if (workspaceId && projectId) {
-    await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`), updates).catch(() => {});
-  }
-  await update(ref(db, `dashboard_tasks/${taskId}`), updates).catch(() => {});
+  if (!workspaceId || !projectId || !taskId) return;
+  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`), updates);
 }
 
 export async function deleteTask(workspaceId, projectId, taskId) {
-  if (!taskId) return;
-  if (workspaceId && projectId) {
-    await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`)).catch(() => {});
-  }
-  await remove(ref(db, `dashboard_tasks/${taskId}`)).catch(() => {});
+  if (!workspaceId || !projectId || !taskId) return;
+  await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`));
 }
 
 export function subscribeToTasks(workspaceId, projectId, callback) {
-  if (!workspaceId && !projectId) return () => {};
+  if (!workspaceId || !projectId) return () => {};
 
-  if (workspaceId && projectId) {
-    // Listen to specific project's tasks branch
-    const tasksRef = ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks`);
-    return onValue(tasksRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const list = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        callback(list);
-      } else {
-        // Fallback to /dashboard_tasks filtered by projectId
-        get(ref(db, 'dashboard_tasks')).then((legacySnap) => {
-          if (legacySnap.exists()) {
-            const data = legacySnap.val();
-            const list = Object.keys(data)
-              .map(key => ({ id: key, ...data[key] }))
-              .filter(t => t.projectId === projectId);
-            list.sort((a, b) => (a.order || 0) - (b.order || 0));
-            callback(list);
-          } else {
-            callback([]);
-          }
-        }).catch(() => callback([]));
-      }
-    });
-  }
-
-  // If only workspaceId is provided, listen to all tasks in dashboard_tasks for this workspace
-  const legacyRef = ref(db, 'dashboard_tasks');
-  return onValue(legacyRef, (snapshot) => {
+  const tasksRef = ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks`);
+  return onValue(tasksRef, (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.val();
-      const list = Object.keys(data)
-        .map(key => ({ id: key, ...data[key] }))
-        .filter(t => !workspaceId || t.workspaceId === workspaceId);
+      const list = Object.keys(data).map(key => ({ id: key, ...data[key] }));
       list.sort((a, b) => (a.order || 0) - (b.order || 0));
       callback(list);
     } else {
@@ -428,15 +321,14 @@ export function subscribeToTasks(workspaceId, projectId, callback) {
 }
 
 // ==========================================
-// 4. CHECKLIST (Hierarchical per Project in Workspace)
+// 4. CHECKLIST (Hierarchical per Project in Workspace ONLY)
 // Path: /workspaces/{workspaceId}/projects/{projectId}/checklist/{itemId}
 // ==========================================
 
 export async function createChecklistItem(workspaceId, projectId, itemData) {
-  const path = workspaceId 
-    ? `workspaces/${workspaceId}/projects/${projectId}/checklist`
-    : `dashboard_projects/${projectId}/checklist`;
+  if (!workspaceId || !projectId) throw new Error('workspaceId and projectId are required');
 
+  const path = `workspaces/${workspaceId}/projects/${projectId}/checklist`;
   const itemRef = push(ref(db, path));
   const key = itemRef.key;
   const fullItem = {
@@ -444,41 +336,28 @@ export async function createChecklistItem(workspaceId, projectId, itemData) {
     id: key,
     _id: key,
     projectId,
-    workspaceId: workspaceId || null,
+    workspaceId,
     createdAt: new Date().toISOString()
   };
 
   await set(itemRef, fullItem);
-
-  // Mirror to legacy path for compatibility
-  try {
-    await set(ref(db, `dashboard_projects/${projectId}/checklist/${key}`), fullItem);
-  } catch (e) {}
-
   return fullItem;
 }
 
 export async function updateChecklistItem(workspaceId, projectId, itemId, updates) {
-  if (workspaceId) {
-    await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/checklist/${itemId}`), updates).catch(() => {});
-  }
-  await update(ref(db, `dashboard_projects/${projectId}/checklist/${itemId}`), updates).catch(() => {});
+  if (!workspaceId || !projectId || !itemId) return;
+  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/checklist/${itemId}`), updates);
 }
 
 export async function deleteChecklistItem(workspaceId, projectId, itemId) {
-  if (workspaceId) {
-    await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/checklist/${itemId}`)).catch(() => {});
-  }
-  await remove(ref(db, `dashboard_projects/${projectId}/checklist/${itemId}`)).catch(() => {});
+  if (!workspaceId || !projectId || !itemId) return;
+  await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/checklist/${itemId}`));
 }
 
 export function subscribeToChecklist(workspaceId, projectId, callback) {
-  if (!projectId) return () => {};
+  if (!workspaceId || !projectId) return () => {};
 
-  const path = workspaceId 
-    ? `workspaces/${workspaceId}/projects/${projectId}/checklist`
-    : `dashboard_projects/${projectId}/checklist`;
-
+  const path = `workspaces/${workspaceId}/projects/${projectId}/checklist`;
   const listRef = ref(db, path);
   return onValue(listRef, (snapshot) => {
     if (snapshot.exists()) {
@@ -487,30 +366,21 @@ export function subscribeToChecklist(workspaceId, projectId, callback) {
       list.sort((a, b) => (a.order || 0) - (b.order || 0));
       callback(list);
     } else {
-      // Fallback to legacy path
-      get(ref(db, `dashboard_projects/${projectId}/checklist`)).then(snap => {
-        if (snap.exists()) {
-          const data = snap.val();
-          const list = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-          list.sort((a, b) => (a.order || 0) - (b.order || 0));
-          callback(list);
-        } else {
-          callback([]);
-        }
-      }).catch(() => callback([]));
+      callback([]);
     }
   });
 }
 
 // ==========================================
-// 5. ACTIVITY (Hierarchical per Workspace)
+// 5. ACTIVITY (Hierarchical per Workspace ONLY)
 // Path: /workspaces/{workspaceId}/activity/{activityId}
 // ==========================================
 
 export async function logActivity(activityData) {
   const wsId = activityData.workspaceId;
-  const path = wsId ? `workspaces/${wsId}/activity` : 'dashboard_activity';
+  if (!wsId) return;
 
+  const path = `workspaces/${wsId}/activity`;
   const actRef = push(ref(db, path));
   const key = actRef.key;
   const data = {
@@ -521,30 +391,11 @@ export async function logActivity(activityData) {
   };
 
   await set(actRef, data);
-
-  // Mirror to top-level dashboard_activity for cross-workspace feeds
-  try {
-    await set(ref(db, `dashboard_activity/${key}`), data);
-  } catch (e) {}
-
   return data;
 }
 
 export function subscribeToActivities(workspaceId, callback, limit = 50) {
-  if (!workspaceId) {
-    // Listen to top-level
-    const actRef = ref(db, 'dashboard_activity');
-    return onValue(actRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        callback([]);
-        return;
-      }
-      const all = snapshot.val();
-      const list = Object.keys(all).map(key => ({ _id: key, id: key, ...all[key] }));
-      list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-      callback(list.slice(0, limit));
-    });
-  }
+  if (!workspaceId) return () => {};
 
   const wsActRef = ref(db, `workspaces/${workspaceId}/activity`);
   return onValue(wsActRef, (snapshot) => {
@@ -554,19 +405,7 @@ export function subscribeToActivities(workspaceId, callback, limit = 50) {
       list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
       callback(list.slice(0, limit));
     } else {
-      // Fallback to dashboard_activity filtered by workspaceId
-      get(ref(db, 'dashboard_activity')).then(snap => {
-        if (snap.exists()) {
-          const all = snap.val();
-          const list = Object.keys(all)
-            .filter(key => all[key].workspaceId === workspaceId)
-            .map(key => ({ _id: key, id: key, ...all[key] }));
-          list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-          callback(list.slice(0, limit));
-        } else {
-          callback([]);
-        }
-      }).catch(() => callback([]));
+      callback([]);
     }
   });
 }

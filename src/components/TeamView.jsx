@@ -19,7 +19,10 @@ export default function TeamView({ activeWorkspaceId, activeProjectId }) {
     }
 
     setLoading(true);
-    const projRef = ref(db, `projects/${activeProjectId}`);
+    const path = activeWorkspaceId 
+      ? `workspaces/${activeWorkspaceId}/projects/${activeProjectId}`
+      : `projects/${activeProjectId}`;
+    const projRef = ref(db, path);
     const unSub = onValue(projRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
@@ -35,12 +38,12 @@ export default function TeamView({ activeWorkspaceId, activeProjectId }) {
     });
 
     return () => unSub();
-  }, [activeProjectId]);
+  }, [activeWorkspaceId, activeProjectId]);
 
   const handleRoleChange = async (memberUid, newRole) => {
     if (!activeProjectId || !memberUid) return;
     try {
-      await updateProjectMemberRole(activeProjectId, memberUid, newRole);
+      await updateProjectMemberRole(activeWorkspaceId, activeProjectId, memberUid, newRole);
     } catch (err) {
       console.error("Failed to update role:", err);
     }

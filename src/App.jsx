@@ -148,9 +148,17 @@ function MainApp() {
           activeProjectId={activeProjectId} 
           onNotificationClick={async (taskId) => {
             try {
-              const snapshot = await get(ref(db, `dashboard_tasks/${taskId}`));
-              if (snapshot.exists()) {
-                setSelectedTaskForModal(snapshot.val());
+              let taskData = null;
+              if (activeWorkspaceId && activeProjectId) {
+                const snap = await get(ref(db, `workspaces/${activeWorkspaceId}/projects/${activeProjectId}/tasks/${taskId}`));
+                if (snap.exists()) taskData = snap.val();
+              }
+              if (!taskData) {
+                const snapshot = await get(ref(db, `dashboard_tasks/${taskId}`));
+                if (snapshot.exists()) taskData = snapshot.val();
+              }
+              if (taskData) {
+                setSelectedTaskForModal(taskData);
                 setActiveTab('Tasks');
               }
             } catch (error) {

@@ -241,8 +241,11 @@ app.put('/api/workspaces/:id/members/:uid', async (req, res) => {
 app.post('/api/projects', async (req, res) => {
   try {
     const { title, status, workspaceId, uid, email, displayName, category, dueDays, dueDate } = req.body;
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId is required' });
+    }
     
-    const baseRef = workspaceId ? db.ref(`workspaces/${workspaceId}/projects`).push() : db.ref('projects').push();
+    const baseRef = db.ref(`workspaces/${workspaceId}/projects`).push();
     const key = baseRef.key;
     const projectData = {
       id: key,
@@ -259,9 +262,6 @@ app.post('/api/projects', async (req, res) => {
     };
     
     await baseRef.set(projectData);
-    if (workspaceId) {
-      await db.ref(`projects/${key}`).set(projectData).catch(() => {});
-    }
     res.status(201).json(projectData);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -271,7 +271,6 @@ app.post('/api/projects', async (req, res) => {
 // Get Projects for Workspace restricted to User
 app.get('/api/projects/workspace/:workspaceId/user/:uid', async (req, res) => {
   try {
-    // 1. Try workspace branch first
     const wsProjSnap = await db.ref(`workspaces/${req.params.workspaceId}/projects`).once('value');
     if (wsProjSnap.exists()) {
       const allProj = wsProjSnap.val();
@@ -280,17 +279,7 @@ app.get('/api/projects/workspace/:workspaceId/user/:uid', async (req, res) => {
         .map(key => ({ _id: key, id: key, ...allProj[key] }));
       return res.json(userProj);
     }
-
-    // 2. Fallback to top-level projects
-    const projSnap = await db.ref('projects').once('value');
-    if (!projSnap.exists()) return res.json([]);
-    
-    const allProj = projSnap.val();
-    const userProj = Object.keys(allProj)
-      .filter(key => allProj[key].workspaceId === req.params.workspaceId && allProj[key].members && allProj[key].members[req.params.uid])
-      .map(key => ({ _id: key, id: key, ...allProj[key] }));
-      
-    res.json(userProj);
+    res.json([]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -299,15 +288,6 @@ app.get('/api/projects/workspace/:workspaceId/user/:uid', async (req, res) => {
 // Get Project by ID
 app.get('/api/projects/:id', async (req, res) => {
   try {
-    // Fallback search across top-level or return directly
-    const projSnap = await db.ref(`projects/${req.params.id}`).once('value');
-    if (projSnap.exists()) {
-      const data = projSnap.val();
-      data.members = data.members ? Object.values(data.members) : [];
-      return res.json({ _id: projSnap.key, id: projSnap.key, ...data });
-    }
-
-    // Search inside workspaces
     const wsSnap = await db.ref('workspaces').once('value');
     if (wsSnap.exists()) {
       const allWs = wsSnap.val();
@@ -319,7 +299,6 @@ app.get('/api/projects/:id', async (req, res) => {
         }
       }
     }
-
     res.status(404).json({ error: 'Project not found' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -329,8 +308,6 @@ app.get('/api/projects/:id', async (req, res) => {
 // Delete Project
 app.delete('/api/projects/:id', async (req, res) => {
   try {
-    await db.ref(`projects/${req.params.id}`).remove();
-    // Also remove from workspace branch
     const wsSnap = await db.ref('workspaces').once('value');
     if (wsSnap.exists()) {
       const allWs = wsSnap.val();
@@ -349,9 +326,21 @@ app.delete('/api/projects/:id', async (req, res) => {
 // Update project member role
 app.put('/api/projects/:id/members/:uid', async (req, res) => {
   try {
-    await db.ref(`projects/${req.params.id}/members/${req.params.uid}`).update({
-      role: req.body.role
-    });
+    const { role, workspaceId } = req.body;
+    if (workspaceId) {
+      await db.ref(`workspaces/${workspaceId}/projects/${req.params.id}/members/${req.params.uid}`).update({ role });
+      return res.json({ success: true });
+    }
+    const wsSnap = await db.ref('workspaces').once('value');
+    if (wsSnap.exists()) {
+      const allWs = wsSnap.val();
+      for (const wId of Object.keys(allWs)) {
+        if (allWs[wId].projects && allWs[wId].projects[req.params.id]) {
+          await db.ref(`workspaces/${wId}/projects/${req.params.id}/members/${req.params.uid}`).update({ role });
+          return res.json({ success: true });
+        }
+      }
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -361,10 +350,22 @@ app.put('/api/projects/:id/members/:uid', async (req, res) => {
 // Add member to project
 app.post('/api/projects/:id/members', async (req, res) => {
   try {
-    const { uid, name, email, role } = req.body;
-    await db.ref(`projects/${req.params.id}/members/${uid}`).set({
-      uid, name, email, role: role || 'Member'
-    });
+    const { uid, name, email, role, workspaceId } = req.body;
+    const memberData = { uid, name, email, role: role || 'Member' };
+    if (workspaceId) {
+      await db.ref(`workspaces/${workspaceId}/projects/${req.params.id}/members/${uid}`).set(memberData);
+      return res.json({ success: true });
+    }
+    const wsSnap = await db.ref('workspaces').once('value');
+    if (wsSnap.exists()) {
+      const allWs = wsSnap.val();
+      for (const wId of Object.keys(allWs)) {
+        if (allWs[wId].projects && allWs[wId].projects[req.params.id]) {
+          await db.ref(`workspaces/${wId}/projects/${req.params.id}/members/${uid}`).set(memberData);
+          return res.json({ success: true });
+        }
+      }
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -375,10 +376,10 @@ app.post('/api/projects/:id/members', async (req, res) => {
 app.post('/api/activity', async (req, res) => {
   try {
     const wsId = req.body.workspaceId;
-    const pathRef = wsId ? db.ref(`workspaces/${wsId}/activity`).push() : db.ref('dashboard_activity').push();
+    if (!wsId) return res.status(400).json({ error: 'workspaceId is required' });
+    const pathRef = db.ref(`workspaces/${wsId}/activity`).push();
     const data = { ...req.body, timestamp: req.body.timestamp || new Date().toISOString() };
     await pathRef.set(data);
-    await db.ref(`dashboard_activity/${pathRef.key}`).set(data).catch(() => {});
     res.status(201).json({ _id: pathRef.key, id: pathRef.key, ...data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -394,17 +395,7 @@ app.get('/api/activity/:workspaceId', async (req, res) => {
       list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
       return res.json(list.slice(0, 50));
     }
-
-    const actSnap = await db.ref('dashboard_activity').once('value');
-    if (!actSnap.exists()) return res.json([]);
-    
-    const allAct = actSnap.val();
-    let wsAct = Object.keys(allAct)
-      .filter(key => allAct[key].workspaceId === req.params.workspaceId)
-      .map(key => ({ _id: key, id: key, ...allAct[key] }));
-      
-    wsAct.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-    res.json(wsAct.slice(0, 50));
+    res.json([]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
