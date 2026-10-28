@@ -5,7 +5,8 @@ import {
   getWorkspace, 
   getProjects, 
   updateWorkspaceMemberRole, 
-  updateProjectMemberRole 
+  updateProjectMemberRole,
+  inviteProjectMember
 } from '../services/firebaseService';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -87,36 +88,45 @@ export default function SettingsView({ activeWorkspaceId }) {
 
     try {
       const memberName = newMemberName.trim() || newMemberEmail.split('@')[0];
-      const payload = {
+      const inviterName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Admin';
+
+      // 1. Store invite record directly in database under the project branch
+      await inviteProjectMember(activeWorkspaceId, selectedProjectId, {
         email: newMemberEmail.trim(),
         name: memberName,
         role: newMemberRole,
-        workspaceId: activeWorkspaceId,
-        projectId: selectedProjectId
-      };
+        invitedBy: inviterName
+      });
 
-      // Try sending email via backend if available
+      // 2. Try sending email via backend if available
       try {
         await fetch(`${API_URL}/invite`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            email: newMemberEmail.trim(),
+            name: memberName,
+            role: newMemberRole,
+            workspaceId: activeWorkspaceId,
+            projectId: selectedProjectId
+          })
         });
       } catch (e) {
         // Fallback silently if serverless
       }
 
-      // Copy invite link to clipboard for convenience
+      // 3. Copy invite link to clipboard for convenience
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(inviteLink);
       }
 
       setNewMemberEmail('');
       setNewMemberName('');
-      showStatus(`Invite created! Link copied to clipboard:\n${inviteLink}`);
+      showStatus(`Invite stored in DB! Link copied to clipboard:\n${inviteLink}`);
+      fetchData();
     } catch (err) {
       console.error("Invite member error:", err);
-      alert(`Invite link: ${inviteLink}`);
+      alert(`Failed to create invite: ${err.message || ''}\n\nInvite link: ${inviteLink}`);
     }
   };
 
@@ -297,6 +307,31 @@ export default function SettingsView({ activeWorkspaceId }) {
                         </div>
                       ))}
                     </div>
+
+                    {/* Pending Project Invitations */}
+                    {proj.invitesList && proj.invitesList.filter(inv => inv.status !== 'Accepted').length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-dashed border-border space-y-2">
+                        <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider block">
+                          Pending Project Invitations (Stored in DB)
+                        </span>
+                        {proj.invitesList.filter(inv => inv.status !== 'Accepted').map(inv => (
+                          <div key={inv.id} className="flex items-center justify-between p-2.5 rounded-xl bg-surface/70 border border-border/60">
+                            <div className="flex items-center space-x-2.5">
+                              <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
+                                @
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-primary block">{inv.name || inv.email}</span>
+                                <span className="text-[10px] text-text-secondary">{inv.email} • Role: {inv.role || 'Member'}</span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                              Invited
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                   </div>
                 );

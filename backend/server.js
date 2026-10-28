@@ -105,6 +105,23 @@ app.post('/api/invite', async (req, res) => {
       `
     };
 
+    // Store invited member's details in project branch
+    try {
+      const inviteRef = db.ref(`workspaces/${workspaceId}/projects/${projectId}/invites`).push();
+      await inviteRef.set({
+        id: inviteRef.key,
+        email: email.trim().toLowerCase(),
+        name: name?.trim() || email.split('@')[0],
+        role: role || 'Member',
+        invitedAt: new Date().toISOString(),
+        status: 'Invited',
+        projectId,
+        workspaceId
+      });
+    } catch (dbErr) {
+      console.warn("Could not write invite to RTDB:", dbErr.message);
+    }
+
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       await transporter.sendMail(mailOptions);
       console.log(`✅ Invite email sent to ${email}`);

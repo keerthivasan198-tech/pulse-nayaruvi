@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { ref, update, get, push } from 'firebase/database';
+import { ref, get } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
+import { addWorkspaceMember, logActivity } from '../services/firebaseService';
 
 export default function WorkspaceInviteHandler() {
   const { workspaceId } = useParams();
@@ -24,24 +25,18 @@ export default function WorkspaceInviteHandler() {
           if (!isMember) {
             setStatus('Joining workspace...');
             
-            // Add user to members
-            const memberRef = ref(db, `workspaces/${workspaceId}/members/${user.uid}`);
-            await update(memberRef, {
+            await addWorkspaceMember(workspaceId, {
               uid: user.uid,
               name: user.displayName || user.email?.split('@')[0] || 'User',
               email: user.email || '',
               role: 'Member'
             });
 
-            // Log activity
-            const activityRef = ref(db, `dashboard_activity`);
-            const newActivityKey = push(activityRef).key;
-            await update(ref(db, `dashboard_activity/${newActivityKey}`), {
+            await logActivity({
               user: user.displayName || user.email?.split('@')[0] || 'User',
               action: 'joined workspace',
               target: wsData.name || 'Workspace',
-              workspaceId,
-              timestamp: new Date().toISOString()
+              workspaceId
             });
           }
           

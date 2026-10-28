@@ -196,7 +196,8 @@ export async function getProjects(workspaceId, uid) {
         _id: key,
         id: key,
         ...all[key],
-        membersList: all[key].members ? Object.values(all[key].members) : []
+        membersList: all[key].members ? Object.values(all[key].members) : [],
+        invitesList: all[key].invites ? Object.values(all[key].invites) : []
       }));
   }
   return [];
@@ -215,7 +216,8 @@ export function subscribeToProjects(workspaceId, uid, callback) {
           _id: key,
           id: key,
           ...all[key],
-          membersList: all[key].members ? Object.values(all[key].members) : []
+          membersList: all[key].members ? Object.values(all[key].members) : [],
+          invitesList: all[key].invites ? Object.values(all[key].invites) : []
         }));
       callback(list);
     } else {
@@ -232,7 +234,33 @@ export async function getProject(workspaceId, projectId) {
     const snap = await get(ref(db, `workspaces/${wId}/projects/${pId}`));
     if (snap.exists()) {
       const data = snap.val();
-      return { _id: pId, id: pId, ...data, members: data.members ? Object.values(data.members) : [] };
+      return { 
+        _id: pId, 
+        id: pId, 
+        workspaceId: wId,
+        ...data, 
+        members: data.members ? Object.values(data.members) : [],
+        invites: data.invites ? Object.values(data.invites) : []
+      };
+    }
+  }
+
+  // Fallback: search all workspaces if workspaceId not provided
+  const wsSnap = await get(ref(db, 'workspaces'));
+  if (wsSnap.exists()) {
+    const allWs = wsSnap.val();
+    for (const wsKey of Object.keys(allWs)) {
+      if (allWs[wsKey]?.projects && allWs[wsKey].projects[pId]) {
+        const data = allWs[wsKey].projects[pId];
+        return { 
+          _id: pId, 
+          id: pId, 
+          workspaceId: wsKey,
+          ...data, 
+          members: data.members ? Object.values(data.members) : [],
+          invites: data.invites ? Object.values(data.invites) : []
+        };
+      }
     }
   }
   return null;
@@ -248,15 +276,113 @@ export async function deleteProject(workspaceId, projectId) {
   await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}`));
 }
 
-export async function addProjectMember(workspaceId, projectId, { uid, name, email, role }) {
-  if (!workspaceId || !projectId || !uid) return;
-  const memberData = {
-    uid,
-    name: name || (email ? email.split('@')[0] : 'User'),
-    email: email || '',
-    role: role || 'Member'
+export async function addProjectMember(workspaceId, projectId, memberData) {
+  let wId = workspaceId;
+  let pId = projectId;
+  let mData = memberData;
+  if (!mData && typeof projectId === 'object') {
+    mData = projectId;
+    pId = workspaceId;
+    wId = null;
+  }
+  if (!wId && pId) {
+    const proj = await getProject(pId);
+    if (proj) wId = proj.workspaceId;
+  }
+  if (!wId || !pId || !mData?.uid) return;
+
+  const data = {
+    uid: mData.uid,
+    name: mData.name || (mData.email ? mData.email.split('@')[0] : 'User'),
+    email: mData.email || '',
+    role: mData.role || 'Member',
+    joinedAt: mData.joinedAt || new Date().toISOString()
   };
-  await set(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`), memberData);
+  await set(ref(db, `workspaces/${wId}/projects/${pId}/members/${mData.uid}`), data);
+}
+
+export async function inviteProjectMember(workspaceId, projectId, { email, name, role, invitedBy }) {
+  if (!workspaceId || !projectId || !email) throw new Error("workspaceId, projectId, and email are required to invite");
+
+  const invitesRef = push(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
+  const inviteKey = invitesRef.key;
+
+  const inviteData = {
+    id: inviteKey,
+    _id: inviteKey,
+    email: email.trim().toLowerCase(),
+    name: name?.trim() || email.split('@')[0],
+    role: role || 'Member',
+    invitedBy: invitedBy || 'Admin',
+    invitedAt: new Date().toISOString(),
+    status: 'Invited',
+    projectId,
+    workspaceId
+  };
+
+  await set(invitesRef, inviteData);
+
+  // Also log activity in workspace
+  await logActivity({
+    user: invitedBy || 'Admin',
+    action: 'invited',
+    target: `${inviteData.name} (${inviteData.email}) to project`,
+    workspaceId,
+    projectId,
+    type: 'invite'
+  });
+
+  return inviteData;
+}
+
+export async function acceptProjectInvite(workspaceId, projectId, user) {
+  if (!workspaceId || !projectId || !user?.uid) return;
+
+  const memberPayload = {
+    uid: user.uid,
+    name: user.displayName || user.email?.split('@')[0] || 'User',
+    email: user.email || '',
+    role: 'Member',
+    joinedAt: new Date().toISOString()
+  };
+
+  // 1. Add to workspace
+  await addWorkspaceMember(workspaceId, memberPayload);
+
+  // 2. Add to project
+  await addProjectMember(workspaceId, projectId, memberPayload);
+
+  // 3. Mark invite as accepted if exists
+  try {
+    const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
+    if (invitesSnap.exists()) {
+      const invites = invitesSnap.val();
+      const userEmail = (user.email || '').toLowerCase();
+      for (const [key, inv] of Object.entries(invites)) {
+        if (inv.email === userEmail) {
+          await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${key}`), {
+            status: 'Accepted',
+            acceptedAt: new Date().toISOString(),
+            acceptedUid: user.uid
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Could not update invite status:", e);
+  }
+
+  // 4. Log activity
+  await logActivity({
+    user: memberPayload.name,
+    action: 'joined project via invite link',
+    target: 'Project',
+    workspaceId,
+    projectId,
+    type: 'join'
+  });
+
+  return memberPayload;
 }
 
 export async function updateProjectMemberRole(workspaceId, projectId, uid, role) {

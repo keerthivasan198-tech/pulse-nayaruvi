@@ -4,9 +4,7 @@ import { auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   getProject, 
-  addWorkspaceMember, 
-  addProjectMember, 
-  logActivity 
+  acceptProjectInvite 
 } from '../services/firebaseService';
 
 export default function InviteHandler() {
@@ -66,30 +64,11 @@ export default function InviteHandler() {
 
   const addUserToProjectAndWorkspace = async (user) => {
     if (!project) return;
-    
     const wsId = workspaceId || project.workspaceId;
-    const payload = {
-      uid: user.uid,
-      name: user.displayName || user.email?.split('@')[0] || 'User',
-      email: user.email || '',
-      role: 'Member'
-    };
 
     try {
-      if (wsId) {
-        await addWorkspaceMember(wsId, payload);
-      }
-
-      await addProjectMember(projectId, payload);
-      
-      await logActivity({
-        user: payload.name,
-        action: 'joined via invite link',
-        target: project.title || 'Project',
-        workspaceId: wsId
-      });
-
-      navigate(`/?ws=${wsId}&proj=${projectId}`);
+      await acceptProjectInvite(wsId, projectId, user);
+      navigate(`/?ws=${wsId}&proj=${projectId}&tab=Projects`);
     } catch (err) {
       console.error("Invite processing error:", err);
       setError("Failed to join project. " + (err.message || ''));

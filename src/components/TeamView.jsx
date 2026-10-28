@@ -6,6 +6,7 @@ import { updateProjectMemberRole } from '../services/firebaseService';
 
 export default function TeamView({ activeWorkspaceId, activeProjectId }) {
   const [members, setMembers] = useState([]);
+  const [invitedMembers, setInvitedMembers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const currentUserRole = members.find(m => m.uid === auth.currentUser?.uid)?.role || 'Member';
@@ -14,6 +15,7 @@ export default function TeamView({ activeWorkspaceId, activeProjectId }) {
   useEffect(() => {
     if (!activeProjectId) {
       setMembers([]);
+      setInvitedMembers([]);
       setLoading(false);
       return;
     }
@@ -27,9 +29,12 @@ export default function TeamView({ activeWorkspaceId, activeProjectId }) {
       if (snapshot.exists()) {
         const data = snapshot.val();
         const memberList = data.members ? Object.values(data.members) : [];
+        const inviteList = data.invites ? Object.values(data.invites) : [];
         setMembers(memberList);
+        setInvitedMembers(inviteList.filter(inv => inv.status !== 'Accepted'));
       } else {
         setMembers([]);
+        setInvitedMembers([]);
       }
       setLoading(false);
     }, (err) => {
@@ -135,6 +140,46 @@ export default function TeamView({ activeWorkspaceId, activeProjectId }) {
               )}
             </div>
           </div>
+
+          {/* Pending Invitations Card */}
+          {invitedMembers.length > 0 && (
+            <div className="celestique-card rounded-2xl overflow-hidden border border-[#C9BD91] mt-6">
+              <div className="p-6 border-b border-[#C9BD91]/50 bg-surface/50 backdrop-blur-sm flex justify-between items-center">
+                <h3 className="text-lg font-bold text-primary font-heading flex items-center gap-2">
+                  <span>Pending Invitations</span>
+                  <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2.5 py-0.5 rounded-full">
+                    {invitedMembers.length}
+                  </span>
+                </h3>
+              </div>
+              <div className="divide-y divide-[#C9BD91]/30">
+                {invitedMembers.map((inv, i) => (
+                  <div key={i} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface/40 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center font-bold text-lg shadow-sm">
+                        @
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-primary flex items-center gap-2">
+                          {inv.name || 'Invited User'}
+                        </h4>
+                        <div className="flex items-center gap-3 text-sm text-text-secondary mt-1">
+                          <span className="flex items-center gap-1"><Mail size={14}/> {inv.email}</span>
+                          <span>•</span>
+                          <span className="text-xs">Role: <strong>{inv.role || 'Member'}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        Pending Acceptance
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
