@@ -1,23 +1,24 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @source ".";
 
 @theme {
-  --color-background: #DFD6AE;
-  --color-surface: #FAF7EC;
+  --color-background: #E6F0EA;
+  --color-surface: #FFFFFF;
   
-  --color-primary: #274245;
-  --color-primary-hover: #1C3235;
-  --color-primary-foreground: #DFD6AE;
+  --color-primary: #1E293B;
+  --color-primary-hover: #0F172A;
+  --color-primary-foreground: #E6F0EA;
   
   --color-success: #10B981;
   --color-warning: #D97706;
   --color-danger: #E11D48;
   --color-info: #2563EB;
   
-  --color-border: #D4C99E;
+  --color-border: #C8D6CD;
   
-  --color-text-primary: #274245;
-  --color-text-secondary: #5C6E6F;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
 
   --radius-xl: 20px;
   --radius-lg: 14px;
@@ -34,17 +35,14 @@
   }
 
   body {
-    background-color: #DFD6AE;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(250, 247, 236, 0.6) 0px, transparent 60%),
-      radial-gradient(at 100% 100%, rgba(39, 66, 69, 0.08) 0px, transparent 50%);
-    color: #274245;
-    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #DADFDB;
+    color: #212316;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     letter-spacing: -0.01em;
   }
 
   h1, h2, h3, .font-heading {
-    font-family: 'Playfair Display', Georgia, serif;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 }
 
@@ -59,48 +57,48 @@
   
   /* Light Cream Option Cards with Dark Blue Text */
   .celestique-card, .sapling-card {
-    background-color: #FAF7EC;
-    color: #274245;
-    border: 1px solid #D4C99E;
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
     box-shadow: 0 4px 20px -2px rgba(39, 66, 69, 0.06);
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   /* Dark Blue Selective Accents */
   .bg-dark-blue {
-    background-color: #274245;
-    color: #FAF7EC;
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
   }
 
   .btn-matte-primary {
-    background-color: #274245;
-    color: #FAF7EC;
-    border: 1px solid #1C3235;
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+    border: 1px solid var(--color-primary-hover);
     box-shadow: 0 2px 6px rgba(39, 66, 69, 0.15);
     transition: all 0.15s ease-in-out;
   }
   .btn-matte-primary:hover {
-    background-color: #1C3235;
+    background-color: var(--color-primary-hover);
     box-shadow: 0 4px 10px rgba(39, 66, 69, 0.25);
   }
   .btn-matte-primary:active {
-    background-color: #142426;
+    background-color: var(--color-primary-hover);
     transform: scale(0.98);
   }
 
   .btn-matte-secondary {
-    background-color: #E8E0BF;
-    color: #274245;
-    border: 1px solid #C9BD91;
+    background-color: var(--color-background);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
     box-shadow: 0 1px 4px rgba(39, 66, 69, 0.08);
     transition: all 0.15s ease-in-out;
   }
   .btn-matte-secondary:hover {
-    background-color: #DFD6B2;
+    background-color: var(--color-border);
     box-shadow: 0 2px 6px rgba(39, 66, 69, 0.12);
   }
   .btn-matte-secondary:active {
-    background-color: #D6CB9F;
+    background-color: var(--color-border);
     transform: scale(0.98);
   }
 
@@ -112,10 +110,10 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #C9BD91;
+    background: var(--color-border);
     border-radius: 9999px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #274245;
+    background: var(--color-primary);
   }
 }

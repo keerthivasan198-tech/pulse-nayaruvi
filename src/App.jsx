@@ -8,14 +8,17 @@ import ChecklistView from './components/ChecklistView';
 import TeamView from './components/TeamView';
 import ActivityView from './components/ActivityView';
 import LoginPage from './components/LoginPage';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
+import { ref, get } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import InviteHandler from './components/InviteHandler';
 import WorkspaceInviteHandler from './components/WorkspaceInviteHandler';
 import NotificationManager from './components/NotificationManager';
 import SettingsView from './components/SettingsView';
 import ProfileModal from './components/ProfileModal';
+import TaskDetailModal from './components/TaskDetailModal';
 
 function MainApp() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1280);
@@ -25,6 +28,7 @@ function MainApp() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(searchParams.get('ws') || null);
   const [activeProjectId, setActiveProjectId] = useState(searchParams.get('proj') || null);
   const [loading, setLoading] = useState(true);
+  const [selectedTaskForModal, setSelectedTaskForModal] = useState(null);
 
   // Profile Modal State & User Profile Details
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -77,8 +81,8 @@ function MainApp() {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#DFD6AE]">
-        <div className="w-8 h-8 rounded-full border-4 border-[#274245] border-t-transparent animate-spin"></div>
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="w-8 h-8 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
       </div>
     );
   }
@@ -88,7 +92,7 @@ function MainApp() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#DFD6AE] text-[#274245] overflow-hidden font-sans">
+    <div className="flex h-screen w-full bg-background text-primary overflow-hidden font-sans">
       <Sidebar 
         isOpen={isSidebarOpen} 
         setIsOpen={setIsSidebarOpen} 
@@ -110,20 +114,62 @@ function MainApp() {
         />
       )}
       
-      <main className="flex-1 flex flex-col min-w-0 transition-all duration-300 relative bg-[#DFD6AE]">
-        <TopNav toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+      <main className="flex-1 flex flex-col min-w-0 transition-all duration-300 relative bg-background">
+        <TopNav 
+          activeWorkspaceId={activeWorkspaceId}
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} 
+          activeProjectId={activeProjectId} 
+          setSelectedTask={setSelectedTaskForModal}
+          setActiveTab={setActiveTab}
+        />
         
-        <div className="flex-1 overflow-auto custom-scrollbar relative">
-          {activeTab === 'Dashboard' && <DashboardView activeWorkspaceId={activeWorkspaceId} />}
-          {activeTab === 'Projects' && <ProjectsView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} setActiveProjectId={setActiveProjectId} setActiveTab={setActiveTab} />}
-          {activeTab === 'Tasks' && <TasksView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
-          {activeTab === 'Checklist' && <ChecklistView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
-          {activeTab === 'Team' && <TeamView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
-          {activeTab === 'Activity' && <ActivityView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
-          {activeTab === 'Settings' && <SettingsView activeWorkspaceId={activeWorkspaceId} />}
+        <div className="flex-1 relative overflow-hidden flex flex-col">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 w-full h-full flex flex-col overflow-auto custom-scrollbar overflow-x-hidden"
+            >
+              {activeTab === 'Dashboard' && <DashboardView activeWorkspaceId={activeWorkspaceId} />}
+              {activeTab === 'Projects' && <ProjectsView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} setActiveProjectId={setActiveProjectId} setActiveTab={setActiveTab} />}
+              {activeTab === 'Tasks' && <TasksView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} setSelectedTaskFromOutside={setSelectedTaskForModal} />}
+              {activeTab === 'Checklist' && <ChecklistView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
+              {activeTab === 'Team' && <TeamView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
+              {activeTab === 'Activity' && <ActivityView activeWorkspaceId={activeWorkspaceId} activeProjectId={activeProjectId} />}
+              {activeTab === 'Settings' && <SettingsView activeWorkspaceId={activeWorkspaceId} />}
+            </motion.div>
+          </AnimatePresence>
         </div>
-        <NotificationManager />
+        <NotificationManager 
+          activeWorkspaceId={activeWorkspaceId}
+          activeProjectId={activeProjectId} 
+          onNotificationClick={async (taskId) => {
+            try {
+              const snapshot = await get(ref(db, `dashboard_tasks/${taskId}`));
+              if (snapshot.exists()) {
+                setSelectedTaskForModal(snapshot.val());
+                setActiveTab('Tasks');
+              }
+            } catch (error) {
+              console.error("Failed to fetch task from notification", error);
+            }
+          }}
+        />
       </main>
+
+      <AnimatePresence>
+        {selectedTaskForModal && (
+          <TaskDetailModal 
+            task={selectedTaskForModal} 
+            projectId={activeProjectId || selectedTaskForModal.projectId}
+            workspaceId={activeWorkspaceId || selectedTaskForModal.workspaceId}
+            onClose={() => setSelectedTaskForModal(null)} 
+          />
+        )}
+      </AnimatePresence>
 
       {/* Interactive Profile Modal */}
       <ProfileModal 

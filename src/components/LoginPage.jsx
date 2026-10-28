@@ -57,54 +57,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[var(--color-background)] font-sans">
+    <div className="flex min-h-screen w-full bg-background font-sans overflow-hidden">
+      <div className="flex w-full h-full min-h-screen overflow-hidden">
       
-      {/* Left Side - Brand & Illustration */}
-      <div className="hidden lg:flex flex-col w-[45%] bg-gradient-to-br from-[#EEF2FF] to-[#E0E7FF] p-12 relative overflow-hidden justify-between">
-        {/* Animated Shapes / Background */}
-        <div className="absolute top-[-10%] left-[-10%] w-[400px] h-[400px] bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-[40%] left-[60%] w-[300px] h-[300px] bg-emerald-500/10 rounded-full blur-3xl animate-pulse delay-500"></div>
-
-        <div className="relative z-10 flex items-center">
-          <div className="w-10 h-10 mr-3 shadow-lg shadow-primary/30 rounded-xl overflow-hidden bg-white flex items-center justify-center">
-            <img src="/logo.png" alt="Nayaruvi Logo" className="w-full h-full object-contain p-1" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
-            <div style={{display: 'none'}} className="w-full h-full bg-primary text-white flex items-center justify-center"><CheckCircle2 size={24} /></div>
-          </div>
+      {/* Left Side - Illustration */}
+      <div className="hidden lg:flex flex-col w-[50%] bg-[#FDF9ED] border-r border-border overflow-hidden">
+        {/* Logo */}
+        <div className="flex items-center p-10 pb-6 shrink-0">
+          <img src="/logo.png" alt="Nayaruvi Logo" className="w-12 h-12 mr-3 object-contain" />
           <div>
-            <h1 className="font-bold text-xl text-text-primary tracking-tight uppercase font-heading">Nayaruvi</h1>
-            <span className="text-[10px] font-bold text-primary tracking-widest uppercase">Pulse</span>
-          </div>
-        </div>
-
-        <div className="relative z-10 max-w-md">
-          <h2 className="text-4xl font-bold text-text-primary leading-[1.2] mb-6">
-            Manage your work,<br/>
-            <span className="text-primary">beautifully.</span>
-          </h2>
-          <p className="text-lg text-text-secondary font-medium leading-relaxed mb-8">
-            The world's simplest, most intuitive project management tool. Designed for speed, clarity, and elegance.
-          </p>
-          
-          <div className="flex items-center space-x-4">
-            <div className="flex -space-x-3">
-              {[1,2,3,4].map(i => (
-                <img key={i} src={`https://ui-avatars.com/api/?name=User+${i}&background=random&color=fff`} className="w-10 h-10 rounded-full border-2 border-[#E0E7FF] shadow-sm relative z-10" alt="avatar" />
-              ))}
-            </div>
-            <p className="text-sm font-semibold text-text-primary">
-              Join 10,000+ teams worldwide.
-            </p>
+            <h1 className="font-bold text-2xl text-primary tracking-tight uppercase font-heading leading-tight">Nayaruvi</h1>
+            <span className="text-[11px] font-bold text-primary/80 tracking-widest uppercase block leading-none mt-1">Pulse</span>
           </div>
         </div>
         
-        <div className="relative z-10 text-sm font-semibold text-text-secondary">
-          © 2026 Nayaruvi Inc.
+        {/* Image */}
+        <div className="flex-1 w-full relative">
+          <img src="/hero-new.jpg" alt="Team Members" className="absolute inset-0 w-full h-full object-contain" />
         </div>
       </div>
 
       {/* Right Side - Login Card */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-white relative">
+      <div className="flex-1 flex flex-col items-center justify-center p-12 bg-background relative">
         <div className="w-full max-w-[420px]">
           
           <div className="text-center mb-8">
@@ -118,7 +92,7 @@ export default function LoginPage() {
 
           <button 
             onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center py-3 px-4 bg-white border border-[var(--color-border)] rounded-[12px] text-sm font-bold text-text-primary hover:bg-[#F8FAFC] transition-colors shadow-softer mb-6"
+            className="w-full flex items-center justify-center py-3 px-4 bg-surface border border-border rounded-[12px] text-sm font-bold text-text-primary hover:bg-white transition-colors shadow-sm mb-6"
           >
             <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -154,7 +128,7 @@ export default function LoginPage() {
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Enter your name"
                     required
-                    className="w-full bg-[#F8FAFC] border border-[var(--color-border)] rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
+                    className="w-full bg-surface border border-border rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
                   />
                 </div>
               </div>
@@ -169,7 +143,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
                   required
-                  className="w-full bg-[#F8FAFC] border border-[var(--color-border)] rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
+                  className="w-full bg-surface border border-border rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
                 />
               </div>
             </div>
@@ -184,7 +158,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
-                  className="w-full bg-[#F8FAFC] border border-[var(--color-border)] rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
+                  className="w-full bg-surface border border-border rounded-[12px] pl-10 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-primary/50 focus:ring-4 focus:ring-primary/10 transition-all font-medium"
                 />
               </div>
             </div>
@@ -228,5 +202,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  </div>
   );
 }

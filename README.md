@@ -1,16 +1,36 @@
-# React + Vite
+# pulse-nayaruvi
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Production-ready Project Management & Workspace Platform powered by React, Tailwind CSS, and Firebase Realtime Database.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Multi-Workspace Architecture**: Isolated workspaces with dynamic switching and custom role management (`Founder`, `Co-Founder`, `Admin`, `Member`, `Viewer`).
+- **Hierarchical Project Trees**: Workspaces host individual projects with dedicated allocated members, task boards, checklists, and activity feeds.
+- **Real-Time Kanban Boards**: Drag-and-drop task management (`To Do`, `In Progress`, `Review`, `Completed`) with priorities, dates, and image attachments.
+- **Interactive Checklists**: Drag-and-drop checklist tracking with instant progress percentage.
+- **Activity & Announcements**: Team notifications, Google Meet integration, and workspace-wide announcements.
+- **Firebase Realtime Database**: Sub-100ms synchronization across all clients with secure database rules.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Hello-Pangea DnD, Framer Motion, TipTap Editor
+- **Backend / Database**: Firebase Realtime Database, Firebase Authentication, Firebase Hosting, Express (Optional utilities)
 
-## Expanding the Oxlint configuration
+## Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+### 1. Install Dependencies
+```bash
+npm install
+```
+
+### 2. Run Locally
+```bash
+npm run dev
+```
+
+### 3. Build & Deploy to Firebase
+```bash
+npm run build
+npm run deploy
+```
+Live URL: [https://pulsenayaruvi.web.app](https://pulsenayaruvi.web.app)

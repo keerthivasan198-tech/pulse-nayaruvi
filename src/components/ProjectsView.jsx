@@ -1,80 +1,68 @@
 import React, { useState, useEffect } from 'react';
 import { FolderOpen, MoreVertical, Link, Plus, CheckCircle2, Shield, User, Trash2 } from 'lucide-react';
 import { auth } from '../firebase';
-
-const API_URL = import.meta.env.VITE_API_URL || 'https://nayaruvi-pulse-zmst.onrender.com/api';
+import { 
+  createProject, 
+  subscribeToProjects, 
+  deleteProject, 
+  updateProjectMemberRole 
+} from '../services/firebaseService';
 
 export default function ProjectsView({ activeWorkspaceId, activeProjectId, setActiveProjectId, setActiveTab }) {
   const [projects, setProjects] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [copySuccessId, setCopySuccessId] = useState(null);
-  const [managingProject, setManagingProject] = useState(null); // The project currently managing members
+  const [managingProject, setManagingProject] = useState(null);
   const [newProject, setNewProject] = useState({ title: '', status: 'Active' });
   const [isCreating, setIsCreating] = useState(false);
 
-  const fetchProjects = async () => {
-    if (!activeWorkspaceId || !auth.currentUser) return;
-    try {
-      const res = await fetch(`${API_URL}/projects/workspace/${activeWorkspaceId}/user/${auth.currentUser.uid}`);
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data.map(p => ({ id: p._id, ...p })));
-      }
-    } catch (err) {
-      console.error(err);
+  useEffect(() => {
+    if (!activeWorkspaceId || !auth.currentUser) {
+      setProjects([]);
+      return;
     }
-  };
+
+    const unSub = subscribeToProjects(activeWorkspaceId, auth.currentUser.uid, (projList) => {
+      setProjects(projList);
+    });
+
+    return () => unSub();
+  }, [activeWorkspaceId]);
 
   const handleDeleteProject = async (projectId) => {
     if (!window.confirm("Are you sure you want to permanently delete this project? This action cannot be undone.")) return;
     try {
-      const res = await fetch(`${API_URL}/projects/${projectId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setProjects(projects.filter(p => p.id !== projectId));
-        if (activeProjectId === projectId) {
-          setActiveProjectId('');
-        }
-        setActiveMenuId(null);
+      await deleteProject(projectId);
+      if (activeProjectId === projectId) {
+        setActiveProjectId('');
       }
+      setActiveMenuId(null);
     } catch (err) {
       console.error("Failed to delete project:", err);
       alert("Failed to delete project.");
     }
   };
 
-  useEffect(() => {
-    fetchProjects();
-  }, [activeWorkspaceId]);
-
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!newProject.title.trim() || !activeWorkspaceId || !auth.currentUser) return;
 
     try {
-      const res = await fetch(`${API_URL}/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newProject.title,
-          status: newProject.status,
-          workspaceId: activeWorkspaceId,
-          uid: auth.currentUser.uid,
-          email: auth.currentUser.email,
-          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
-        })
+      await createProject({
+        title: newProject.title,
+        status: newProject.status,
+        workspaceId: activeWorkspaceId,
+        uid: auth.currentUser.uid,
+        email: auth.currentUser.email,
+        displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
       });
       
-      if (res.ok) {
-        setNewProject({ title: '', status: 'Active' });
-        setIsCreating(false);
-        fetchProjects();
-      }
+      setNewProject({ title: '', status: 'Active' });
+      setIsCreating(false);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to create project:', err);
     }
   };
-
-
 
   const handleGenerateLink = (projectId) => {
     const inviteLink = `${window.location.origin}/invite/${projectId}?workspaceId=${activeWorkspaceId}`;
@@ -85,26 +73,16 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
     });
   };
 
-  const handlePromote = async (projectId, memberKey, currentRole) => {
+  const handlePromote = async (projectId, memberUid, currentRole) => {
     if (currentRole === 'Founder') return;
     try {
       const newRole = currentRole === 'Co-Founder' ? 'Member' : 'Co-Founder';
-      const memberUid = Object.values(projects.find(p => p.id === projectId).members)[memberKey].uid;
-      
-      const res = await fetch(`${API_URL}/projects/${projectId}/members/${memberUid}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole })
-      });
-      if (res.ok) {
-        fetchProjects();
-      }
+      await updateProjectMemberRole(projectId, memberUid, newRole);
     } catch (e) {
       console.error("Failed to update role", e);
     }
   };
 
-  // Check if current user is founder or co-founder for a project
   const isLeader = (project) => {
     if (!project.members) return false;
     const userMember = Object.values(project.members).find(m => m.uid === auth.currentUser?.uid);
@@ -112,29 +90,29 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
   };
 
   return (
-    <div className="flex h-full w-full flex-col p-4 md:p-8 bg-[#DFD6AE] overflow-y-auto custom-scrollbar">
+    <div className="flex h-full w-full flex-col p-4 md:p-8 bg-background overflow-y-auto custom-scrollbar">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 mb-8">
         <div>
-          <h2 className="text-3xl font-normal text-[#274245] tracking-wide mb-1 font-heading uppercase">
-            Projects
+          <h2 className="text-3xl font-bold text-primary tracking-tight mb-2 uppercase">
+            PROJECTS
           </h2>
-          <p className="text-sm font-medium text-[#5C6E6F]">
+          <p className="text-sm font-medium text-text-secondary">
             Manage your project workspace, team members, and permissions.
           </p>
         </div>
         <button 
           onClick={() => setIsCreating(true)}
-          className="flex items-center px-5 py-2.5 btn-matte-primary rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer font-heading"
+          className="flex items-center px-5 py-2.5 bg-primary text-background rounded-xl font-bold text-sm transition-all cursor-pointer hover:bg-primary-hover"
         >
           <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
           New Project
         </button>
       </div>
 
-      <div className="celestique-card rounded-2xl overflow-visible max-w-4xl text-[#274245]">
+      <div className="celestique-card rounded-2xl overflow-visible max-w-4xl text-primary">
         {projects.length === 0 ? (
           <div className="p-12 text-center text-[#7D7268]">
-            <div className="w-12 h-12 rounded-2xl bg-[#EBE4DB] border border-[#DDD5CC] flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center mx-auto mb-3">
               <FolderOpen size={24} className="text-[#2B2420]" />
             </div>
             <h4 className="text-[#2B2420] font-bold text-sm mb-1 font-heading">No Projects Found</h4>
@@ -148,9 +126,9 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
             const isProjFounder = proj.members && Object.values(proj.members).some(m => m.uid === auth.currentUser?.uid && m.role === 'Founder');
             const memberCount = proj.members ? Object.keys(proj.members).length : 0;
             return (
-              <div key={proj.id} className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-[#F4F0EA] transition-colors ${i !== filteredProjects.length - 1 ? 'border-b border-[#DDD5CC]' : ''}`}>
+              <div key={proj.id} className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-surface transition-colors ${i !== filteredProjects.length - 1 ? 'border-b border-border' : ''}`}>
                 <div className="flex items-center sm:w-[40%] mb-3 sm:mb-0 cursor-pointer group" onClick={() => { setActiveProjectId(proj.id); setActiveTab('Tasks'); }}>
-                  <div className="w-10 h-10 rounded-xl bg-[#2B2420] text-[#FAF8F5] flex items-center justify-center mr-4 shadow-sm shrink-0 group-hover:scale-105 transition-transform">
+                  <div className="w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center mr-4 shadow-sm shrink-0 group-hover:scale-105 transition-transform">
                     <FolderOpen size={18} strokeWidth={2.2} />
                   </div>
                   <div>
@@ -161,30 +139,30 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
                 
                 <div className="sm:w-[30%] flex items-center justify-end relative space-x-2">
                   {copySuccessId === proj.id && (
-                    <span className="text-xs font-bold text-[#2B2420] mr-2 flex items-center bg-[#EBE4DB] border border-[#DDD5CC] px-2.5 py-1 rounded-lg">
+                    <span className="text-xs font-bold text-primary mr-2 flex items-center bg-background border border-border px-2.5 py-1 rounded-lg">
                       <CheckCircle2 size={13} className="mr-1 text-[#2B2420]" /> Copied Link!
                     </span>
                   )}
                   {leader && (
                     <button 
                       onClick={() => setActiveMenuId(activeMenuId === proj.id ? null : proj.id)}
-                      className="text-[#2B2420] hover:text-black p-2 rounded-lg hover:bg-black/10 transition-colors"
+                      className="text-[#2B2420] hover:text-text-primary p-2 rounded-lg hover:bg-black/10 transition-colors"
                     >
                       <MoreVertical size={16} strokeWidth={2.5} />
                     </button>
                   )}
                   
                   {activeMenuId === proj.id && (
-                    <div className="absolute right-0 top-10 mt-1 w-48 bg-[#FAF8F5] rounded-xl shadow-celestique-lg border border-[#DDD5CC] z-20 py-1 animate-in fade-in zoom-in duration-100 text-[#2B2420]">
+                    <div className="absolute right-0 top-10 mt-1 w-48 bg-surface rounded-xl shadow-celestique-lg border border-border z-20 py-1 animate-in fade-in zoom-in duration-100 text-primary">
                       <button 
                         onClick={() => handleGenerateLink(proj.id)}
-                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#2B2420] hover:bg-[#F4F0EA] flex items-center transition-colors"
+                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-background flex items-center transition-colors"
                       >
                         <Link size={14} className="mr-2.5 text-[#2B2420]" /> Invite Members
                       </button>
                       <button 
                         onClick={() => { setManagingProject(proj); setActiveMenuId(null); }}
-                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#2B2420] hover:bg-[#F4F0EA] flex items-center transition-colors border-b border-[#DDD5CC]/50"
+                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-primary hover:bg-background flex items-center transition-colors border-b border-border/50"
                       >
                         <User size={14} className="mr-2.5 text-[#7D7268]" /> Manage Roles
                       </button>
@@ -208,22 +186,22 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
       {/* Role Management Modal */}
       {managingProject && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-white rounded-[20px] w-full max-w-lg p-6 shadow-xl border border-[var(--color-border)] animate-in fade-in zoom-in duration-200">
+          <div className="bg-surface rounded-[20px] w-full max-w-lg p-6 shadow-xl border border-border animate-in fade-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-text-primary flex items-center">
                 Manage {managingProject.title}
               </h3>
               <button onClick={() => setManagingProject(null)} className="text-text-secondary hover:text-text-primary transition-colors">
-                X
+                ✕
               </button>
             </div>
             
             <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar">
               {managingProject.members ? Object.entries(managingProject.members).map(([key, member]) => (
-                <div key={key} className="flex items-center justify-between p-3 border border-[var(--color-border)] rounded-[12px] bg-[#F8FAFC]">
+                <div key={key} className="flex items-center justify-between p-3 border border-border rounded-[12px] bg-background">
                   <div className="flex items-center">
                     <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center mr-3 font-bold text-xs">
-                      {member.name.charAt(0).toUpperCase()}
+                      {member.name ? member.name.charAt(0).toUpperCase() : 'U'}
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-text-primary">{member.name}</h4>
@@ -233,7 +211,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
                   <div className="flex items-center">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-[6px] mr-3 ${
                       member.role === 'Founder' ? 'bg-primary/10 text-primary' : 
-                      member.role === 'Co-Founder' ? 'bg-purple-500/10 text-purple-600' : 'bg-gray-200 text-gray-700'
+                      member.role === 'Co-Founder' ? 'bg-purple-500/10 text-purple-600' : 'bg-slate-700 text-gray-700'
                     }`}>
                       {member.role === 'Founder' && <Shield size={10} className="inline mr-1" />}
                       {member.role === 'Co-Founder' && <Shield size={10} className="inline mr-1" />}
@@ -241,7 +219,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
                     </span>
                     {member.role !== 'Founder' && (
                       <button 
-                        onClick={() => handlePromote(managingProject.id, key, member.role)}
+                        onClick={() => handlePromote(managingProject.id, member.uid, member.role)}
                         className="text-xs font-bold text-primary hover:underline"
                       >
                         {member.role === 'Co-Founder' ? 'Demote' : 'Promote'}
@@ -257,7 +235,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
             <div className="mt-6 flex justify-end">
                <button 
                  onClick={() => handleGenerateLink(managingProject.id)}
-                 className="flex items-center px-4 py-2 bg-[#F8FAFC] border border-[var(--color-border)] hover:bg-[#F1F5F9] text-text-primary rounded-[12px] text-sm font-bold transition-colors mr-3"
+                 className="flex items-center px-4 py-2 bg-background border border-border hover:bg-surface text-text-primary rounded-[12px] text-sm font-bold transition-colors mr-3"
                >
                  <Link size={14} className="mr-2" /> Invite Link
                </button>
@@ -275,8 +253,8 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
       {/* Create Project Modal */}
       {isCreating && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-[#FAF7EC] rounded-2xl w-full max-w-sm p-6 shadow-celestique-lg border border-[#DDD5CC] animate-in fade-in zoom-in duration-200">
-            <h3 className="text-xl font-normal text-[#274245] mb-4 font-heading uppercase tracking-wide">Create New Project</h3>
+          <div className="bg-surface rounded-2xl w-full max-w-sm p-6 shadow-celestique-lg border border-[#DDD5CC] animate-in fade-in zoom-in duration-200">
+            <h3 className="text-xl font-normal text-primary mb-4 font-heading uppercase tracking-wide">Create New Project</h3>
             <form onSubmit={handleCreateProject}>
               <div className="mb-4">
                 <label className="block text-xs font-bold text-[#4A443E] mb-1.5">Project Title</label>
@@ -284,7 +262,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
                   type="text" 
                   value={newProject.title}
                   onChange={e => setNewProject({...newProject, title: e.target.value})}
-                  className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm text-[#274245] font-medium focus:outline-none focus:border-[#274245]"
+                  className="w-full bg-surface border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm text-primary font-medium focus:outline-none focus:border-primary"
                   placeholder="e.g. Website Redesign"
                   required
                   autoFocus
@@ -294,7 +272,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
                 <button 
                   type="button" 
                   onClick={() => setIsCreating(false)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-[#DDD5CC] text-[#274245] hover:bg-white cursor-pointer transition-colors"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-[#DDD5CC] text-primary hover:bg-surface cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
@@ -310,16 +288,5 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
         </div>
       )}
     </div>
-  );
-}
-
-function UsersIcon(props) {
-  return (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
   );
 }

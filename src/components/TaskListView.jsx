@@ -16,12 +16,12 @@ export default function TaskListView({ tasks, columns, onTaskClick, projectMembe
       case 'Urgent': return 'text-danger bg-danger/10';
       case 'High': return 'text-warning bg-warning/10';
       case 'Low': return 'text-success bg-success/10';
-      default: return 'text-text-secondary bg-gray-100';
+      default: return 'text-text-secondary bg-slate-800/50';
     }
   };
 
   return (
-    <div className="w-full bg-white border border-[var(--color-border)] rounded-[16px] shadow-sm overflow-hidden">
+    <div className="w-full bg-surface border border-[var(--color-border)] rounded-[16px] shadow-sm overflow-hidden">
       
       {/* Header Row */}
       <div className="flex items-center px-6 py-4 border-b border-[var(--color-border)] bg-[#F8FAFC]">
@@ -36,7 +36,7 @@ export default function TaskListView({ tasks, columns, onTaskClick, projectMembe
           <div key={group.id} className="mb-2">
             
             {/* Group Header */}
-            <div className="px-6 py-3 bg-white flex items-center">
+            <div className="px-6 py-3 bg-surface flex items-center">
               <span className="bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-md mr-2 flex items-center shadow-sm shadow-primary/20">
                 {group.title} <span className="ml-2 opacity-80">{group.tasks.length}</span>
               </span>
@@ -48,7 +48,7 @@ export default function TaskListView({ tasks, columns, onTaskClick, projectMembe
                 <div 
                   key={task.id} 
                   onClick={() => onTaskClick(task)}
-                  className="flex items-center px-6 py-4 bg-white hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
+                  className="flex items-center px-6 py-4 bg-surface hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
                 >
                   <div className="w-[45%] flex items-center pr-4">
                     <CheckCircle2 size={16} className="text-text-secondary opacity-30 group-hover:opacity-100 group-hover:text-primary transition-all mr-3 shrink-0" />
@@ -98,7 +98,7 @@ export default function TaskListView({ tasks, columns, onTaskClick, projectMembe
               ))}
               
               {group.tasks.length === 0 && (
-                <div className="px-6 py-4 bg-white text-xs font-medium text-text-secondary italic pl-[52px]">
+                <div className="px-6 py-4 bg-surface text-xs font-medium text-text-secondary italic pl-[52px]">
                   No tasks in this list.
                 </div>
               )}

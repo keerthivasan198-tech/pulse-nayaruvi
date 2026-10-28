@@ -1,17 +1,37 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getDatabase } = require('firebase-admin/database');
+const fs = require('fs');
+const path = require('path');
 
-// Import Models
-const Workspace = require('./models/Workspace');
-const Project = require('./models/Project');
-const Activity = require('./models/Activity');
+// Initialize Firebase Admin
+let serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+try {
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = require(serviceAccountPath);
+    initializeApp({
+      credential: cert(serviceAccount),
+      databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+    console.log('✅ Connected to Firebase via serviceAccountKey.json');
+  } else {
+    // If no service account, try default credentials or direct URL
+    initializeApp({
+      databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+    console.log('✅ Connected to Firebase via default credentials / URL');
+  }
+} catch (err) {
+  console.error('❌ Firebase Admin initialization error:', err);
+  process.exit(1);
+}
+
+const db = getDatabase();
 
 const app = express();
-
-// Allow all origins (Netlify, local, etc)
 app.use(cors());
 app.use(express.json());
 
@@ -21,16 +41,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Database Connection
-mongoose.connect(process.env.MONGODB_URI)
-.then(() => console.log('✅ Connected to MongoDB Nayaruvi Pulse'))
-.catch((err) => console.error('❌ MongoDB connection error:', err));
-
 // =======================
 // EMAIL CONFIG
 // =======================
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // Standard configuration for Gmail
+  service: 'gmail',
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
@@ -50,7 +65,15 @@ app.post('/api/invite', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const project = await Project.findById(projectId);
+    let project = null;
+    const projSnap = await db.ref(`workspaces/${workspaceId}/projects/${projectId}`).once('value');
+    if (projSnap.exists()) {
+      project = projSnap.val();
+    } else {
+      const legSnap = await db.ref(`projects/${projectId}`).once('value');
+      if (legSnap.exists()) project = legSnap.val();
+    }
+
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const inviteLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/invite/${projectId}?workspaceId=${workspaceId}`;
@@ -87,7 +110,7 @@ app.post('/api/invite', async (req, res) => {
   }
 });
 
-// Health check - keeps Render awake
+// Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/workspaces/ping', (req, res) => res.json({ status: 'awake' }));
 
@@ -100,13 +123,25 @@ app.post('/api/workspaces', async (req, res) => {
     if (!name || !uid) {
       return res.status(400).json({ error: 'name and uid are required' });
     }
-    const workspace = new Workspace({
+    
+    const wsRef = db.ref('workspaces').push();
+    const workspaceData = {
       name,
-      members: [{ uid, email, name: displayName || email, role: 'Founder' }]
-    });
-    await workspace.save();
-    console.log('✅ Workspace created:', workspace._id);
-    res.status(201).json(workspace);
+      createdAt: new Date().toISOString(),
+      createdBy: uid,
+      members: {
+        [uid]: { uid, email: email || '', name: displayName || (email ? email.split('@')[0] : 'Unknown'), role: 'Founder' }
+      }
+    };
+    await wsRef.set(workspaceData);
+    await db.ref(`user_workspaces/${uid}/${wsRef.key}`).set({
+      workspaceId: wsRef.key,
+      name,
+      joinedAt: new Date().toISOString()
+    }).catch(() => {});
+
+    console.log('✅ Workspace created:', wsRef.key);
+    res.status(201).json({ _id: wsRef.key, id: wsRef.key, ...workspaceData });
   } catch (err) {
     console.error('❌ Create workspace error:', err.message);
     res.status(500).json({ error: err.message });
@@ -116,8 +151,13 @@ app.post('/api/workspaces', async (req, res) => {
 // Get User's Workspaces
 app.get('/api/workspaces/:uid', async (req, res) => {
   try {
-    const workspaces = await Workspace.find({ 'members.uid': req.params.uid });
-    res.json(workspaces);
+    const wsSnap = await db.ref('workspaces').once('value');
+    if (!wsSnap.exists()) return res.json([]);
+    const allWs = wsSnap.val();
+    const userWs = Object.keys(allWs)
+      .filter(key => allWs[key].members && allWs[key].members[req.params.uid])
+      .map(key => ({ _id: key, id: key, ...allWs[key] }));
+    res.json(userWs);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -126,9 +166,32 @@ app.get('/api/workspaces/:uid', async (req, res) => {
 // Get Workspace by ID
 app.get('/api/workspace/:id', async (req, res) => {
   try {
-    const workspace = await Workspace.findById(req.params.id);
-    if (!workspace) return res.status(404).json({ error: 'Not found' });
-    res.json(workspace);
+    const wsSnap = await db.ref(`workspaces/${req.params.id}`).once('value');
+    if (!wsSnap.exists()) return res.status(404).json({ error: 'Not found' });
+    
+    const data = wsSnap.val();
+    data.members = data.members ? Object.values(data.members) : [];
+    res.json({ _id: wsSnap.key, id: wsSnap.key, ...data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Workspace
+app.delete('/api/workspaces/:id', async (req, res) => {
+  try {
+    await db.ref(`workspaces/${req.params.id}`).remove();
+    // Also delete associated top-level projects if any
+    const projSnap = await db.ref('projects').once('value');
+    if (projSnap.exists()) {
+      const allProj = projSnap.val();
+      Object.keys(allProj).forEach(async (key) => {
+        if (allProj[key].workspaceId === req.params.id) {
+          await db.ref(`projects/${key}`).remove();
+        }
+      });
+    }
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -137,20 +200,15 @@ app.get('/api/workspace/:id', async (req, res) => {
 // Add member to workspace
 app.post('/api/workspaces/:id/members', async (req, res) => {
   try {
-    const workspace = await Workspace.findById(req.params.id);
-    if (!workspace) return res.status(404).json({ error: 'Not found' });
-
-    // Check if member already exists
-    if (!workspace.members.some(m => m.uid === req.body.uid)) {
-      workspace.members.push({
-        uid: req.body.uid,
-        name: req.body.name,
-        email: req.body.email,
-        role: req.body.role || 'Member'
-      });
-      await workspace.save();
-    }
-    res.json(workspace);
+    const { uid, name, email, role } = req.body;
+    await db.ref(`workspaces/${req.params.id}/members/${uid}`).set({
+      uid, name, email, role: role || 'Member'
+    });
+    await db.ref(`user_workspaces/${uid}/${req.params.id}`).set({
+      workspaceId: req.params.id,
+      joinedAt: new Date().toISOString()
+    }).catch(() => {});
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -159,13 +217,10 @@ app.post('/api/workspaces/:id/members', async (req, res) => {
 // Update workspace member role
 app.put('/api/workspaces/:id/members/:uid', async (req, res) => {
   try {
-    const workspace = await Workspace.findById(req.params.id);
-    const member = workspace.members.find(m => m.uid === req.params.uid);
-    if (member) {
-      member.role = req.body.role;
-      await workspace.save();
-    }
-    res.json(workspace);
+    await db.ref(`workspaces/${req.params.id}/members/${req.params.uid}`).update({
+      role: req.body.role
+    });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -176,15 +231,29 @@ app.put('/api/workspaces/:id/members/:uid', async (req, res) => {
 // Create Project
 app.post('/api/projects', async (req, res) => {
   try {
-    const { title, status, workspaceId, uid, email, displayName } = req.body;
-    const project = new Project({
+    const { title, status, workspaceId, uid, email, displayName, category, dueDays, dueDate } = req.body;
+    
+    const baseRef = workspaceId ? db.ref(`workspaces/${workspaceId}/projects`).push() : db.ref('projects').push();
+    const key = baseRef.key;
+    const projectData = {
+      id: key,
+      _id: key,
       title,
-      status,
+      status: status || 'Active',
+      category: category || 'General',
       workspaceId,
-      members: [{ uid, email, name: displayName, role: 'Founder' }]
-    });
-    await project.save();
-    res.status(201).json(project);
+      createdAt: new Date().toISOString(),
+      dueDate: dueDate || new Date(Date.now() + parseInt(dueDays || 7) * 24 * 60 * 60 * 1000).toISOString(),
+      members: {
+        [uid]: { uid, email: email || '', name: displayName || (email ? email.split('@')[0] : 'Unknown'), role: 'Founder' }
+      }
+    };
+    
+    await baseRef.set(projectData);
+    if (workspaceId) {
+      await db.ref(`projects/${key}`).set(projectData).catch(() => {});
+    }
+    res.status(201).json(projectData);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -193,11 +262,26 @@ app.post('/api/projects', async (req, res) => {
 // Get Projects for Workspace restricted to User
 app.get('/api/projects/workspace/:workspaceId/user/:uid', async (req, res) => {
   try {
-    const projects = await Project.find({ 
-      workspaceId: req.params.workspaceId,
-      'members.uid': req.params.uid 
-    });
-    res.json(projects);
+    // 1. Try workspace branch first
+    const wsProjSnap = await db.ref(`workspaces/${req.params.workspaceId}/projects`).once('value');
+    if (wsProjSnap.exists()) {
+      const allProj = wsProjSnap.val();
+      const userProj = Object.keys(allProj)
+        .filter(key => allProj[key].members && allProj[key].members[req.params.uid])
+        .map(key => ({ _id: key, id: key, ...allProj[key] }));
+      return res.json(userProj);
+    }
+
+    // 2. Fallback to top-level projects
+    const projSnap = await db.ref('projects').once('value');
+    if (!projSnap.exists()) return res.json([]);
+    
+    const allProj = projSnap.val();
+    const userProj = Object.keys(allProj)
+      .filter(key => allProj[key].workspaceId === req.params.workspaceId && allProj[key].members && allProj[key].members[req.params.uid])
+      .map(key => ({ _id: key, id: key, ...allProj[key] }));
+      
+    res.json(userProj);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -206,8 +290,48 @@ app.get('/api/projects/workspace/:workspaceId/user/:uid', async (req, res) => {
 // Get Project by ID
 app.get('/api/projects/:id', async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
-    res.json(project);
+    // Fallback search across top-level or return directly
+    const projSnap = await db.ref(`projects/${req.params.id}`).once('value');
+    if (projSnap.exists()) {
+      const data = projSnap.val();
+      data.members = data.members ? Object.values(data.members) : [];
+      return res.json({ _id: projSnap.key, id: projSnap.key, ...data });
+    }
+
+    // Search inside workspaces
+    const wsSnap = await db.ref('workspaces').once('value');
+    if (wsSnap.exists()) {
+      const allWs = wsSnap.val();
+      for (const wId of Object.keys(allWs)) {
+        if (allWs[wId].projects && allWs[wId].projects[req.params.id]) {
+          const pData = allWs[wId].projects[req.params.id];
+          pData.members = pData.members ? Object.values(pData.members) : [];
+          return res.json({ _id: req.params.id, id: req.params.id, ...pData });
+        }
+      }
+    }
+
+    res.status(404).json({ error: 'Project not found' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Project
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    await db.ref(`projects/${req.params.id}`).remove();
+    // Also remove from workspace branch
+    const wsSnap = await db.ref('workspaces').once('value');
+    if (wsSnap.exists()) {
+      const allWs = wsSnap.val();
+      for (const wId of Object.keys(allWs)) {
+        if (allWs[wId].projects && allWs[wId].projects[req.params.id]) {
+          await db.ref(`workspaces/${wId}/projects/${req.params.id}`).remove();
+        }
+      }
+    }
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -216,13 +340,10 @@ app.get('/api/projects/:id', async (req, res) => {
 // Update project member role
 app.put('/api/projects/:id/members/:uid', async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
-    const member = project.members.find(m => m.uid === req.params.uid);
-    if (member) {
-      member.role = req.body.role;
-      await project.save();
-    }
-    res.json(project);
+    await db.ref(`projects/${req.params.id}/members/${req.params.uid}`).update({
+      role: req.body.role
+    });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -231,18 +352,11 @@ app.put('/api/projects/:id/members/:uid', async (req, res) => {
 // Add member to project
 app.post('/api/projects/:id/members', async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id);
-    if (!project.members.some(m => m.uid === req.body.uid)) {
-      project.members.push({
-        uid: req.body.uid,
-        name: req.body.name,
-        email: req.body.email,
-        role: req.body.role || 'Member'
-      });
-      project.stats.members = project.members.length;
-      await project.save();
-    }
-    res.json(project);
+    const { uid, name, email, role } = req.body;
+    await db.ref(`projects/${req.params.id}/members/${uid}`).set({
+      uid, name, email, role: role || 'Member'
+    });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -251,9 +365,12 @@ app.post('/api/projects/:id/members', async (req, res) => {
 // --- Activity ---
 app.post('/api/activity', async (req, res) => {
   try {
-    const activity = new Activity(req.body);
-    await activity.save();
-    res.status(201).json(activity);
+    const wsId = req.body.workspaceId;
+    const pathRef = wsId ? db.ref(`workspaces/${wsId}/activity`).push() : db.ref('dashboard_activity').push();
+    const data = { ...req.body, timestamp: req.body.timestamp || new Date().toISOString() };
+    await pathRef.set(data);
+    await db.ref(`dashboard_activity/${pathRef.key}`).set(data).catch(() => {});
+    res.status(201).json({ _id: pathRef.key, id: pathRef.key, ...data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -261,12 +378,28 @@ app.post('/api/activity', async (req, res) => {
 
 app.get('/api/activity/:workspaceId', async (req, res) => {
   try {
-    const activities = await Activity.find({ workspaceId: req.params.workspaceId }).sort({ timestamp: -1 }).limit(50);
-    res.json(activities);
+    const wsSnap = await db.ref(`workspaces/${req.params.workspaceId}/activity`).once('value');
+    if (wsSnap.exists()) {
+      const allAct = wsSnap.val();
+      const list = Object.keys(allAct).map(key => ({ _id: key, id: key, ...allAct[key] }));
+      list.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+      return res.json(list.slice(0, 50));
+    }
+
+    const actSnap = await db.ref('dashboard_activity').once('value');
+    if (!actSnap.exists()) return res.json([]);
+    
+    const allAct = actSnap.val();
+    let wsAct = Object.keys(allAct)
+      .filter(key => allAct[key].workspaceId === req.params.workspaceId)
+      .map(key => ({ _id: key, id: key, ...allAct[key] }));
+      
+    wsAct.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    res.json(wsAct.slice(0, 50));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Backend server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Backend server running on port ${PORT} with Firebase RTDB`));

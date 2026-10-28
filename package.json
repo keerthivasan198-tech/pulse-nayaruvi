@@ -6,16 +6,23 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"cd backend && node server.js\"",
     "build": "vite build",
+    "deploy": "vite build && firebase deploy --only hosting",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@tailwindcss/typography": "^0.5.20",
+    "@tiptap/extension-placeholder": "^3.29.1",
+    "@tiptap/react": "^3.29.1",
+    "@tiptap/starter-kit": "^3.29.1",
     "firebase": "^12.16.0",
+    "framer-motion": "^12.42.2",
     "lucide-react": "^1.26.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1"
+    "react-router-dom": "^7.18.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

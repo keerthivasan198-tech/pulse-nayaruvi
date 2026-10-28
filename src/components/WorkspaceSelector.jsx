@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { auth } from '../firebase';
-import { Settings, UserPlus, Box, LayoutTemplate, SquareAsterisk, Zap, Tags, Plus, CheckCircle2, Trash2 } from 'lucide-react';
-
-const API_URL = import.meta.env.VITE_API_URL || 'https://nayaruvi-pulse-zmst.onrender.com/api';
+import { Settings, UserPlus, Plus, CheckCircle2, Trash2 } from 'lucide-react';
+import { 
+  createWorkspace, 
+  subscribeToUserWorkspaces, 
+  subscribeToProjects, 
+  deleteWorkspace 
+} from '../services/firebaseService';
 
 export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspaceId, onOpenSettings }) {
   const [workspaces, setWorkspaces] = useState([]);
@@ -18,71 +22,43 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
   const [wsCreating, setWsCreating] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Wake up Render backend on mount (free tier sleeps after inactivity)
+  // Subscribe to workspaces in real-time
   useEffect(() => {
-    fetch(`${API_URL}/workspaces/ping`).catch(() => {});
-  }, []);
-
-  const fetchWorkspaces = async (user) => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/workspaces/${user.uid}`);
-      if (res.ok) {
-        const data = await res.json();
-        const formatted = data.map(w => ({ id: w._id, ...w }));
-        setWorkspaces(formatted);
-        if (formatted.length > 0 && !activeWorkspaceId) {
-          setActiveWorkspaceId(formatted[0].id);
-        }
-        setHasFetched(true);
-      }
-    } catch (err) {
-      console.error(err);
-      // Don't set hasFetched to true if it completely fails, so we don't inappropriately prompt to create a workspace on mobile while waiting for the server to wake up
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
+    let unSub = () => {};
     import('firebase/auth').then(({ onAuthStateChanged }) => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unSub = onAuthStateChanged(auth, (user) => {
         if (user) {
-          fetchWorkspaces(user);
+          const unsubscribeWs = subscribeToUserWorkspaces(user.uid, (wsList) => {
+            setWorkspaces(wsList);
+            if (wsList.length > 0 && !activeWorkspaceId) {
+              setActiveWorkspaceId(wsList[0].id);
+            }
+            setHasFetched(true);
+            setLoading(false);
+          });
+          return unsubscribeWs;
         } else {
+          setWorkspaces([]);
           setLoading(false);
         }
       });
-      return () => unsubscribe();
     });
 
-    const interval = setInterval(() => {
-      if (auth.currentUser) fetchWorkspaces(auth.currentUser);
-    }, 5000); // Polling for updates
-    
-    return () => clearInterval(interval);
+    return () => unSub();
   }, [activeWorkspaceId, setActiveWorkspaceId]);
 
-  const fetchProjects = async () => {
-    if (!activeWorkspaceId || !auth.currentUser) return;
-    try {
-      const res = await fetch(`${API_URL}/projects/workspace/${activeWorkspaceId}/user/${auth.currentUser.uid}`);
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data.map(p => ({ id: p._id, ...p })));
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
+  // Subscribe to projects in active workspace
   useEffect(() => {
-    fetchProjects();
-    const interval = setInterval(fetchProjects, 5000);
-    return () => clearInterval(interval);
+    if (!activeWorkspaceId || !auth.currentUser) {
+      setProjects([]);
+      return;
+    }
+
+    const unSubProj = subscribeToProjects(activeWorkspaceId, auth.currentUser.uid, (projList) => {
+      setProjects(projList);
+    });
+
+    return () => unSubProj();
   }, [activeWorkspaceId]);
 
   // Handle click outside to close dropdown
@@ -108,44 +84,23 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
     }
 
     setWsCreating(true);
-    // Retry up to 5 times to handle Render cold start (can take up to 60s)
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      try {
-        const res = await fetch(`${API_URL}/workspaces`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: newWsName,
-            uid: auth.currentUser.uid,
-            email: auth.currentUser.email,
-            displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
-          })
-        });
+    try {
+      const newWs = await createWorkspace({
+        name: newWsName,
+        uid: auth.currentUser.uid,
+        email: auth.currentUser.email,
+        displayName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0]
+      });
 
-        if (res.ok) {
-          const newWs = await res.json();
-          setNewWsName('');
-          setIsCreating(false);
-          setActiveWorkspaceId(newWs._id);
-          setIsOpen(false);
-          setWsCreating(false);
-          await fetchWorkspaces(auth.currentUser);
-          return;
-        } else {
-          const err = await res.json();
-          setWsError(err.error || 'Failed to create workspace.');
-          setWsCreating(false);
-          return;
-        }
-      } catch (error) {
-        if (attempt < 5) {
-          setWsError(`Server is waking up... please wait (${attempt * 10}s)`);
-          await new Promise(r => setTimeout(r, 10000)); // wait 10s between retries
-        } else {
-          setWsError('Server is taking too long. Try clicking Create again in 30 seconds.');
-          setWsCreating(false);
-        }
-      }
+      setNewWsName('');
+      setIsCreating(false);
+      setActiveWorkspaceId(newWs.id);
+      setIsOpen(false);
+    } catch (err) {
+      console.error('Failed to create workspace:', err);
+      setWsError(err.message || 'Failed to create workspace.');
+    } finally {
+      setWsCreating(false);
     }
   };
 
@@ -169,13 +124,11 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
     e.stopPropagation();
     if (!window.confirm("Are you sure you want to permanently delete this Workspace and ALL of its Projects? This cannot be undone.")) return;
     try {
-      const res = await fetch(`${API_URL}/workspaces/${wsId}`, { method: 'DELETE' });
-      if (res.ok) {
-        const remaining = workspaces.filter(w => w.id !== wsId);
-        setWorkspaces(remaining);
-        if (activeWorkspaceId === wsId) {
-          setActiveWorkspaceId(remaining.length > 0 ? remaining[0].id : null);
-        }
+      await deleteWorkspace(wsId);
+      const remaining = workspaces.filter(w => w.id !== wsId);
+      setWorkspaces(remaining);
+      if (activeWorkspaceId === wsId) {
+        setActiveWorkspaceId(remaining.length > 0 ? remaining[0].id : null);
       }
     } catch (err) {
       console.error("Failed to delete workspace:", err);
@@ -185,8 +138,8 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
 
   if (!loading && hasFetched && workspaces.length === 0) {
     return createPortal(
-      <div className="fixed inset-0 bg-[#DFD6AE] z-[9999] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-[#D4C99E] shadow-2xl rounded-2xl p-8 text-center animate-in fade-in zoom-in duration-300">
+      <div className="fixed inset-0 bg-background z-[9999] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-surface border border-border shadow-2xl rounded-2xl p-8 text-center animate-in fade-in zoom-in duration-300">
           <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 size={32} strokeWidth={2.5} />
           </div>
@@ -201,10 +154,10 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
               value={newWsName}
               onChange={e => setNewWsName(e.target.value)}
               placeholder="E.g. Acme Corp Workspace"
-              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-base font-medium focus:outline-none focus:border-primary transition-colors mb-4"
+              className="w-full border-2 border-border rounded-xl px-4 py-3 text-base font-medium focus:outline-none focus:border-primary transition-colors mb-4"
             />
             {wsError && (
-              <p className="text-sm font-medium mb-3" style={{color: wsError.includes('waking') ? '#d97706' : '#ef4444'}}>{wsError}</p>
+              <p className="text-sm font-medium mb-3 text-red-500">{wsError}</p>
             )}
             <button 
               type="submit" 
@@ -227,18 +180,18 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
       {/* Selector Button */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#1C3235] hover:bg-[#142426] text-[#DFD6AE] border border-[#274245] transition-all duration-150 shadow-xs cursor-pointer group"
+        className="w-full flex items-center justify-between p-2.5 rounded-xl bg-primary-hover hover:bg-[#142426] text-background border border-primary transition-all duration-150 shadow-xs cursor-pointer group"
       >
         <div className="flex items-center space-x-3 truncate">
-          <div className="w-8 h-8 rounded-lg bg-[#DFD6AE] text-[#274245] flex items-center justify-center font-bold text-sm shadow-xs shrink-0 font-heading">
+          <div className="w-8 h-8 rounded-lg bg-background text-primary flex items-center justify-center font-bold text-sm shadow-xs shrink-0 font-heading">
             {activeWsInitial}
           </div>
           <div className="flex flex-col items-start truncate">
-            <span className="text-[9px] font-bold text-[#DFD6AE]/75 uppercase tracking-wider leading-tight">Workspace</span>
-            <span className="text-sm font-bold text-[#DFD6AE] truncate">{activeWsName}</span>
+            <span className="text-[9px] font-bold text-background/75 uppercase tracking-wider leading-tight">Workspace</span>
+            <span className="text-sm font-bold text-background truncate">{activeWsName}</span>
           </div>
         </div>
-        <svg className={`w-4 h-4 text-[#DFD6AE]/75 group-hover:text-white transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+        <svg className={`w-4 h-4 text-background/75 group-hover:text-white transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
       </button>
 
       {/* Dropdown Menu */}
@@ -246,7 +199,7 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
         <div className="absolute top-full left-0 mt-2 w-72 bg-[#FAF8F5] rounded-2xl shadow-celestique-lg border border-[#DDD5CC] z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 text-[#2B2420]">
           
           {/* Header Info */}
-          <div className="p-4 border-b border-[#DDD5CC] flex items-center space-x-3 bg-white/50">
+          <div className="p-4 border-b border-[#DDD5CC] flex items-center space-x-3 bg-surface/50">
             <div className="w-11 h-11 rounded-xl bg-[#2B2420] text-[#FAF8F5] flex items-center justify-center font-bold text-lg shadow-sm font-heading">
               {activeWsInitial}
             </div>
@@ -276,9 +229,10 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
             <div className="px-2 py-1 text-[11px] font-bold text-text-secondary uppercase tracking-wider">Switch Workspaces</div>
             <div className="max-h-[120px] overflow-y-auto custom-scrollbar">
               {workspaces.map(ws => {
-                const isFounder = Array.isArray(ws.members) && ws.members.some(m => m.uid === auth.currentUser?.uid && m.role === 'Founder');
+                const members = ws.membersList || (ws.members ? Object.values(ws.members) : []);
+                const isFounder = members.some(m => m.uid === auth.currentUser?.uid && m.role === 'Founder');
                 return (
-                  <div key={ws.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors ${activeWorkspaceId === ws.id ? 'bg-primary/5' : ''}`}>
+                  <div key={ws.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[#F3EFEA] transition-colors ${activeWorkspaceId === ws.id ? 'bg-primary/5' : ''}`}>
                     <button 
                       onClick={() => { setActiveWorkspaceId(ws.id); setIsOpen(false); }}
                       className={`flex-1 flex items-center text-sm font-medium ${activeWorkspaceId === ws.id ? 'text-primary font-bold' : 'text-text-primary'}`}
@@ -310,7 +264,7 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
                   value={newWsName}
                   onChange={e => setNewWsName(e.target.value)}
                   placeholder="Workspace Name"
-                  className="w-full border border-[var(--color-border)] rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-primary"
+                  className="w-full border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-primary"
                 />
                 <div className="flex justify-end mt-2 space-x-2">
                   <button type="button" onClick={() => setIsCreating(false)} className="text-xs text-text-secondary font-bold">Cancel</button>
@@ -320,7 +274,7 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
             ) : (
               <button 
                 onClick={() => setIsCreating(true)}
-                className="w-full mt-1 flex items-center justify-center py-2 rounded-lg border border-dashed border-[var(--color-border)] hover:bg-gray-50 text-sm font-medium text-text-secondary transition-colors"
+                className="w-full mt-1 flex items-center justify-center py-2 rounded-lg border border-dashed border-border hover:bg-[#F3EFEA] text-sm font-medium text-text-secondary transition-colors"
               >
                 <Plus size={14} className="mr-2" /> Create Workspace
               </button>
@@ -332,16 +286,16 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
       {/* Project Selection Modal for Invites */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center" onClick={() => setShowInviteModal(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-surface rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-text-primary mb-4">Invite to Project</h3>
             <p className="text-sm text-text-secondary mb-4">Select a project in this workspace to generate an invite link.</p>
             
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
               {projects.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4">No projects in this workspace yet.</p>
+                <p className="text-sm text-text-secondary text-center py-4">No projects in this workspace yet.</p>
               ) : (
                 projects.map(proj => (
-                  <div key={proj.id} className="flex items-center justify-between p-3 border border-[var(--color-border)] rounded-xl hover:border-primary/30 transition-colors">
+                  <div key={proj.id} className="flex items-center justify-between p-3 border border-border rounded-xl hover:border-primary/30 transition-colors">
                     <span className="font-bold text-sm text-text-primary">{proj.title}</span>
                     <button 
                       onClick={() => handleGenerateProjectLink(proj.id)}

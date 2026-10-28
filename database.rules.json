@@ -1,0 +1,46 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "workspaces": {
+      "$workspaceId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "members": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "projects": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "$projectId": {
+            ".read": "auth != null",
+            ".write": "auth != null",
+            "members": {
+              ".read": "auth != null",
+              ".write": "auth != null"
+            },
+            "tasks": {
+              ".read": "auth != null",
+              ".write": "auth != null"
+            },
+            "checklist": {
+              ".read": "auth != null",
+              ".write": "auth != null"
+            }
+          }
+        },
+        "activity": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "user_workspaces": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Plus, LayoutGrid, List as ListIcon, Calendar, Flag, MessageSquare, Paperclip, User, CheckCircle2 } from 'lucide-react';
-import { db, auth } from '../firebase';
-import { ref, onValue, push, set, update } from 'firebase/database';
+import { auth } from '../firebase';
+import { 
+  subscribeToTasks, 
+  createTask, 
+  updateTask, 
+  subscribeToProjects, 
+  getProject, 
+  logActivity 
+} from '../services/firebaseService';
 import TaskListView from './TaskListView';
 import TaskDetailModal from './TaskDetailModal';
 
 import { useSearchParams } from 'react-router-dom';
-
-const API_URL = import.meta.env.VITE_API_URL || 'https://nayaruvi-pulse-zmst.onrender.com/api';
 
 const COLUMNS = {
   'col-todo': { id: 'col-todo', title: 'To Do', color: 'text-text-primary', badge: 'bg-[#F1F5F9] text-text-secondary' },
@@ -35,20 +40,13 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
       return;
     }
 
-    const fetchProjects = async () => {
-      try {
-        const res = await fetch(`${API_URL}/projects/workspace/${activeWorkspaceId}/user/${auth.currentUser.uid}`);
-        if (res.ok) {
-          const data = await res.json();
-          const myProjects = data.map(p => ({ id: p._id, ...p }));
-          setProjects(myProjects);
-        }
-      } catch (err) {
-        console.error("Error fetching projects for tasks:", err);
-      }
-    };
+    const unsubProjects = subscribeToProjects(activeWorkspaceId, auth.currentUser.uid, (myProjects) => {
+      setProjects(myProjects);
+    });
 
-    fetchProjects();
+    return () => {
+      if (unsubProjects) unsubProjects();
+    };
   }, [activeWorkspaceId]);
 
   useEffect(() => {
@@ -58,26 +56,17 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
       return;
     }
 
-    const tasksRef = ref(db, 'dashboard_tasks');
-    const unSubTasks = onValue(tasksRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const tasksList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        
-        const projectTasks = tasksList.filter(t => t.projectId === activeProjectId);
-        projectTasks.sort((a, b) => (a.order || 0) - (b.order || 0));
-        setTasks(projectTasks);
-      } else {
-        setTasks([]);
-      }
+    const unSubTasks = subscribeToTasks(activeWorkspaceId, activeProjectId, (taskList) => {
+      setTasks(taskList);
     });
 
     const fetchMembers = async () => {
       try {
-        const res = await fetch(`${API_URL}/projects/${activeProjectId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setProjectMembers(data.members || []);
+        const proj = await getProject(activeWorkspaceId, activeProjectId);
+        if (proj) {
+          setProjectMembers(proj.members || []);
+        } else {
+          setProjectMembers([]);
         }
       } catch (err) {
         console.error("Error fetching project members:", err);
@@ -86,8 +75,10 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
     
     fetchMembers();
 
-    return () => { unSubTasks(); };
-  }, [activeProjectId]);
+    return () => { 
+      if (unSubTasks) unSubTasks(); 
+    };
+  }, [activeWorkspaceId, activeProjectId]);
 
   const getTasksByColumn = (columnId) => {
     return tasks.filter(t => t.status === columnId);
@@ -114,8 +105,7 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
     }
 
     try {
-      const taskRef = ref(db, `dashboard_tasks/${draggableId}`);
-      await update(taskRef, {
+      await updateTask(activeWorkspaceId, activeProjectId, draggableId, {
         status: destination.droppableId,
         order: newOrder
       });
@@ -142,9 +132,7 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
     const projectTitle = projects.find(p => p.id === activeProjectId)?.title || 'General';
 
     try {
-      const newTaskRef = push(ref(db, 'dashboard_tasks'));
-      
-      const savePromise = set(newTaskRef, {
+      await createTask(activeWorkspaceId, activeProjectId, {
         content: newTaskContent,
         status: columnId,
         order: order,
@@ -158,16 +146,9 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
         createdAt: new Date().toISOString()
       });
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Database connection timed out. Please check if Realtime Database is enabled in your Firebase Console and the URL is correct in your environment variables.")), 5000)
-      );
-
-      await Promise.race([savePromise, timeoutPromise]);
-
       if (taskData.assigneeId && taskData.assigneeId !== auth.currentUser?.uid) {
         const assignee = projectMembers.find(m => m.uid === taskData.assigneeId);
-        const actRef = push(ref(db, 'dashboard_activity'));
-        await set(actRef, {
+        await logActivity(activeWorkspaceId, {
           user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0],
           action: 'assigned a task to',
           target: assignee ? (assignee.name || assignee.email) : 'someone',
@@ -241,6 +222,8 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
                     handleAddTask={(e, colId, taskData) => handleAddTask(e, colId, taskData)}
                     onTaskClick={setSelectedTask}
                     projectMembers={projectMembers}
+                    activeWorkspaceId={activeWorkspaceId}
+                    activeProjectId={activeProjectId}
                   />
                 );
               })}
@@ -263,6 +246,7 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
         <TaskDetailModal 
           task={selectedTask} 
           projectId={activeProjectId}
+          workspaceId={activeWorkspaceId}
           onClose={() => setSelectedTask(null)} 
         />
       )}
@@ -270,7 +254,7 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
   );
 }
 
-function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, setNewTaskContent, handleAddTask, onTaskClick, projectMembers }) {
+function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, setNewTaskContent, handleAddTask, onTaskClick, projectMembers, activeWorkspaceId, activeProjectId }) {
   const [assigneeId, setAssigneeId] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState('Normal');
@@ -319,7 +303,15 @@ function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, se
             }`}
           >
             {tasks.map((task, index) => (
-              <KanbanCard key={task.id} task={task} index={index} onTaskClick={onTaskClick} projectMembers={projectMembers} />
+              <KanbanCard 
+                key={task.id} 
+                task={task} 
+                index={index} 
+                onTaskClick={onTaskClick} 
+                projectMembers={projectMembers} 
+                activeWorkspaceId={activeWorkspaceId}
+                activeProjectId={activeProjectId}
+              />
             ))}
             {provided.placeholder}
 
@@ -359,7 +351,7 @@ function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, se
                     <Calendar size={14} className="mr-2" />
                     <input 
                       type="date" 
-                      value={dueDate}
+                      value={dueDate} 
                       onChange={e => setDueDate(e.target.value)}
                       className="bg-transparent focus:outline-none cursor-pointer w-full"
                     />
@@ -414,7 +406,7 @@ function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, se
   );
 }
 
-function KanbanCard({ task, index, onTaskClick, projectMembers = [] }) {
+function KanbanCard({ task, index, onTaskClick, projectMembers = [], activeWorkspaceId, activeProjectId }) {
   const getPriorityColor = (priority) => {
     switch(priority) {
       case 'Urgent': return 'text-danger bg-danger/10';
@@ -430,10 +422,9 @@ function KanbanCard({ task, index, onTaskClick, projectMembers = [] }) {
   const handleComplete = async (e) => {
     e.stopPropagation();
     try {
-      const taskRef = ref(db, `dashboard_tasks/${task.id}`);
-      await update(taskRef, { status: 'col-completed' });
+      await updateTask(task.workspaceId || activeWorkspaceId, task.projectId || activeProjectId, task.id, { status: 'col-completed' });
     } catch (err) {
-      console.error(err);
+      console.error("Complete task error:", err);
     }
   };
 

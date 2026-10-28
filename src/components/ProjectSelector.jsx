@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth } from '../firebase';
 import { Folder, FolderOpen, Plus } from 'lucide-react';
-
-const API_URL = import.meta.env.VITE_API_URL || 'https://nayaruvi-pulse-zmst.onrender.com/api';
+import { subscribeToProjects } from '../services/firebaseService';
 
 export default function ProjectSelector({ activeWorkspaceId, activeProjectId, setActiveProjectId, onNavigateToProjects }) {
   const [projects, setProjects] = useState([]);
@@ -10,34 +9,20 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
   const [loading, setLoading] = useState(true);
   const dropdownRef = useRef(null);
 
-  const fetchProjects = async () => {
+  useEffect(() => {
     if (!activeWorkspaceId || !auth.currentUser) {
       setProjects([]);
       setLoading(false);
       return;
     }
-    
-    try {
-      const res = await fetch(`${API_URL}/projects/workspace/${activeWorkspaceId}/user/${auth.currentUser.uid}`);
-      if (res.ok) {
-        const data = await res.json();
-        const myProjects = data.map(p => ({ id: p._id, ...p }));
-        setProjects(myProjects);
-        
-        // We do not auto-select a project here anymore, so the user can view all projects on the Projects page initially.
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    fetchProjects();
-    const interval = setInterval(fetchProjects, 10000);
-    return () => clearInterval(interval);
-  }, [activeWorkspaceId, activeProjectId]);
+    const unSub = subscribeToProjects(activeWorkspaceId, auth.currentUser.uid, (projList) => {
+      setProjects(projList);
+      setLoading(false);
+    });
+
+    return () => unSub();
+  }, [activeWorkspaceId]);
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -58,27 +43,27 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
       {/* Selector Button */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#203A3C] hover:bg-[#1A3032] text-[#DFD6AE] border border-[#2B4A4D] transition-all duration-150 shadow-xs cursor-pointer group"
+        className="w-full flex items-center justify-between p-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-background border border-slate-700 transition-all duration-150 shadow-xs cursor-pointer group"
       >
         <div className="flex items-center space-x-3 truncate">
-          <div className="w-8 h-8 rounded-lg bg-[#DFD6AE]/10 text-[#DFD6AE] flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-background/10 text-background flex items-center justify-center shrink-0">
             {activeProject ? <FolderOpen size={16} /> : <Folder size={16} />}
           </div>
           <div className="flex flex-col items-start truncate">
-            <span className="text-[9px] font-bold text-[#DFD6AE]/60 uppercase tracking-wider leading-tight">Project</span>
-            <span className="text-sm font-bold text-[#DFD6AE] truncate">
+            <span className="text-[9px] font-bold text-background/60 uppercase tracking-wider leading-tight">Project</span>
+            <span className="text-sm font-bold text-background truncate">
               {loading && projects.length === 0 ? 'Loading...' : activeProjName}
             </span>
           </div>
         </div>
-        <svg className={`w-4 h-4 text-[#DFD6AE]/50 group-hover:text-white transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+        <svg className={`w-4 h-4 text-background/50 group-hover:text-white transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
       </button>
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-full bg-[#FAF8F5] rounded-2xl shadow-celestique-lg border border-[#DDD5CC] z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 text-[#2B2420]">
+        <div className="absolute top-full left-0 mt-2 w-full bg-surface rounded-2xl shadow-celestique-lg border border-border z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 text-primary">
           
-          <div className="p-3 text-[10px] font-black tracking-widest text-[#7D7268] uppercase flex items-center bg-[#F3EFEA] border-b border-[#DDD5CC]">
+          <div className="p-3 text-[10px] font-black tracking-widest text-text-secondary uppercase flex items-center bg-background border-b border-border">
             <Folder size={12} className="mr-1.5" /> Select Project
           </div>
 
@@ -91,12 +76,12 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
                 }}
                 className={`w-full text-left px-4 py-3 flex items-center space-x-3 transition-colors ${
                   !activeProjectId 
-                  ? 'bg-[#EFE8DD] text-[#2B2420]' 
-                  : 'hover:bg-[#F8F5F1] text-[#4A423A]'
+                  ? 'bg-background text-primary' 
+                  : 'hover:bg-background/50 text-text-primary'
                 }`}
               >
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  !activeProjectId ? 'bg-[#2B2420] text-[#FAF8F5]' : 'bg-[#DDD5CC] text-[#7D7268]'
+                  !activeProjectId ? 'bg-primary text-primary-foreground' : 'bg-border text-text-secondary'
                 }`}>
                   <FolderOpen size={14} />
                 </div>
@@ -114,40 +99,40 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
                 projects.map(proj => (
                   <button
                     key={proj.id}
-                  onClick={() => {
-                    setActiveProjectId(proj.id);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full text-left px-4 py-3 flex items-center space-x-3 transition-colors ${
-                    activeProjectId === proj.id 
-                    ? 'bg-[#EFE8DD] text-[#2B2420]' 
-                    : 'hover:bg-[#F8F5F1] text-[#4A423A]'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                    activeProjectId === proj.id ? 'bg-[#2B2420] text-[#FAF8F5]' : 'bg-[#DDD5CC] text-[#7D7268]'
-                  }`}>
-                    {activeProjectId === proj.id ? <FolderOpen size={14} /> : <Folder size={14} />}
-                  </div>
-                  <div className="flex flex-col truncate">
-                    <span className="font-bold text-sm truncate">{proj.title}</span>
-                    <span className="text-[10px] font-medium opacity-70">
-                      {proj.status || 'Active'}
-                    </span>
-                  </div>
-                </button>
-              ))
-            )}
+                    onClick={() => {
+                      setActiveProjectId(proj.id);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 flex items-center space-x-3 transition-colors ${
+                      activeProjectId === proj.id 
+                      ? 'bg-background text-primary' 
+                      : 'hover:bg-background/50 text-text-primary'
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      activeProjectId === proj.id ? 'bg-primary text-primary-foreground' : 'bg-border text-text-secondary'
+                    }`}>
+                      {activeProjectId === proj.id ? <FolderOpen size={14} /> : <Folder size={14} />}
+                    </div>
+                    <div className="flex flex-col truncate">
+                      <span className="font-bold text-sm truncate">{proj.title}</span>
+                      <span className="text-[10px] font-medium opacity-70">
+                        {proj.status || 'Active'}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              )}
           </div>
 
           {/* Action Button */}
-          <div className="p-2 border-t border-[#DDD5CC] bg-[#F8F5F1]">
+          <div className="p-2 border-t border-border bg-background">
             <button
               onClick={() => {
                 onNavigateToProjects();
                 setIsOpen(false);
               }}
-              className="w-full py-2.5 px-3 rounded-xl border border-dashed border-[#C0B4A5] text-[#4A423A] hover:bg-[#EFE8DD] hover:text-[#2B2420] hover:border-[#2B2420] transition-colors flex items-center justify-center text-xs font-bold"
+              className="w-full py-2.5 px-3 rounded-xl border border-dashed border-border text-text-primary hover:bg-surface hover:text-primary hover:border-primary transition-colors flex items-center justify-center text-xs font-bold"
             >
               <Plus size={14} className="mr-1.5" /> Manage Projects
             </button>

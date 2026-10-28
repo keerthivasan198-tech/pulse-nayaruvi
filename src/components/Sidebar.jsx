@@ -13,7 +13,7 @@ export default function Sidebar({
   activeProjectId, setActiveProjectId,
   userProfile, onOpenProfileModal 
 }) {
-  const baseClasses = "w-[260px] flex-shrink-0 bg-[#274245] text-[#DFD6AE] border-r border-[#1C3235] flex flex-col h-full shadow-sapling-lg transition-transform duration-300";
+  const baseClasses = "w-[260px] flex-shrink-0 bg-primary text-background border-r border-primary-hover flex flex-col h-full shadow-sapling-lg transition-transform duration-300";
   const mobileClasses = "fixed inset-y-0 left-0 z-40 xl:relative xl:translate-x-0";
   const translateClass = isOpen ? "translate-x-0" : "-translate-x-full xl:hidden";
 
@@ -21,13 +21,10 @@ export default function Sidebar({
     <aside className={`${baseClasses} ${mobileClasses} ${translateClass}`}>
       {/* Brand Logo */}
       <div className="h-[72px] flex items-center px-6 cursor-pointer shrink-0">
-        <div className="w-9 h-9 rounded-xl overflow-hidden bg-white flex items-center justify-center mr-3.5 shadow-md">
-          <img src="/logo.png" alt="Nayaruvi Logo" className="w-full h-full object-contain p-0.5" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
-          <div style={{display: 'none'}} className="w-full h-full bg-[#DFD6AE] text-[#274245] flex items-center justify-center"><CheckCircle2 size={20} strokeWidth={2.5} /></div>
-        </div>
+        <img src="/logo.png" alt="Nayaruvi Logo" className="w-12 h-12 mr-3.5 object-contain" />
         <div className="flex flex-col">
-          <span className="text-2xl font-bold tracking-widest text-[#DFD6AE] leading-none font-heading uppercase">Nayaruvi</span>
-          <span className="text-[9px] font-bold text-[#DFD6AE]/90 tracking-widest uppercase mt-1">Pulse</span>
+          <span className="text-2xl font-bold tracking-widest text-background leading-none font-heading uppercase">Nayaruvi</span>
+          <span className="text-[9px] font-bold text-background/90 tracking-widest uppercase mt-1">Pulse</span>
         </div>
       </div>
 
@@ -56,28 +53,28 @@ export default function Sidebar({
       </div>
 
       {/* User Profile Footer (Single Place Down in Left Corner) */}
-      <div className="p-4 border-t border-[#1C3235] bg-black/15">
+      <div className="p-4 border-t border-primary-hover bg-black/15">
         <div 
           onClick={onOpenProfileModal}
-          className="flex items-center justify-between p-2.5 rounded-xl hover:bg-white/10 border border-transparent hover:border-white/15 cursor-pointer transition-all duration-150 group"
+          className="flex items-center justify-between p-2.5 rounded-xl hover:bg-surface/10 border border-transparent hover:border-white/15 cursor-pointer transition-all duration-150 group"
           title="Click to view & edit profile"
         >
           <div className="flex items-center">
-            <div className="w-9 h-9 rounded-full bg-[#DFD6AE] p-[2px] shadow-xs">
+            <div className="w-9 h-9 rounded-full bg-background p-[2px] shadow-xs">
               <img 
                 src={userProfile?.avatar || "https://ui-avatars.com/api/?name=Manikandan&background=274245&color=DFD6AE"} 
                 alt="User" 
-                className="w-full h-full rounded-full border-2 border-[#274245] object-cover" 
+                className="w-full h-full rounded-full border-2 border-primary object-cover" 
               />
             </div>
             <div className="ml-3 flex flex-col">
-              <span className="text-xs font-bold text-[#DFD6AE] leading-tight group-hover:underline">{userProfile?.name || "User"}</span>
+              <span className="text-xs font-bold text-background leading-tight group-hover:underline">{userProfile?.name || "User"}</span>
               {userProfile?.role && (
-                <span className="text-[11px] text-[#DFD6AE]/75 font-medium">{userProfile.role}</span>
+                <span className="text-[11px] text-background/75 font-medium">{userProfile.role}</span>
               )}
             </div>
           </div>
-          <ChevronDown size={14} className="text-[#DFD6AE]/75 group-hover:text-white" />
+          <ChevronDown size={14} className="text-background/75 group-hover:text-white" />
         </div>
       </div>
     </aside>
@@ -90,14 +87,14 @@ function NavItem({ icon, label, active, onClick }) {
       onClick={onClick}
       className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer transition-all duration-150 group ${
       active 
-      ? 'bg-[#DFD6AE] text-[#274245] font-bold shadow-md' 
-      : 'text-[#DFD6AE]/80 hover:text-white hover:bg-white/10 font-medium border border-transparent'
+      ? 'bg-background text-primary font-bold shadow-md' 
+      : 'text-background/80 hover:text-white hover:bg-surface/10 font-medium border border-transparent'
     }`}>
       <div className="flex items-center">
-        <div className={`mr-3.5 transition-colors ${active ? 'text-[#274245]' : 'text-[#DFD6AE]/75 group-hover:text-white'}`}>{icon}</div>
+        <div className={`mr-3.5 transition-colors ${active ? 'text-primary' : 'text-background/75 group-hover:text-white'}`}>{icon}</div>
         <span className="text-[14px] tracking-tight">{label}</span>
       </div>
-      {active && <div className="w-1.5 h-1.5 rounded-full bg-[#274245]"></div>}
+      {active && <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>}
     </div>
   );
 }

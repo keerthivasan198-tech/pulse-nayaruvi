@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { auth } from '../firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
-import { CheckCircle2 } from 'lucide-react';
-
-const API_URL = import.meta.env.VITE_API_URL || 'https://nayaruvi-pulse-zmst.onrender.com/api';
+import { onAuthStateChanged } from 'firebase/auth';
+import { 
+  getProject, 
+  addWorkspaceMember, 
+  addProjectMember, 
+  logActivity 
+} from '../services/firebaseService';
 
 export default function InviteHandler() {
   const { projectId } = useParams();
@@ -22,14 +25,13 @@ export default function InviteHandler() {
       return;
     }
 
-    const fetchProject = async () => {
+    const fetchProj = async () => {
       try {
-        const res = await fetch(`${API_URL}/projects/${projectId}`);
-        if (!res.ok) {
+        const data = await getProject(projectId);
+        if (!data) {
           setError("Project not found or link is invalid.");
           return;
         }
-        const data = await res.json();
         setProject(data);
         
         if (!workspaceId && data.workspaceId) {
@@ -38,13 +40,14 @@ export default function InviteHandler() {
           setSearchParams(params, { replace: true });
         }
       } catch (err) {
+        console.error(err);
         setError("Error loading project details.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProject();
+    fetchProj();
   }, [projectId]);
 
   useEffect(() => {
@@ -54,7 +57,6 @@ export default function InviteHandler() {
       if (user) {
         await addUserToProjectAndWorkspace(user);
       } else {
-        // Redirect to login page
         navigate(`/?invite=${projectId}&workspaceId=${project.workspaceId || workspaceId}`);
       }
     });
@@ -66,80 +68,61 @@ export default function InviteHandler() {
     if (!project) return;
     
     const wsId = workspaceId || project.workspaceId;
-    
     const payload = {
       uid: user.uid,
-      name: user.displayName || user.email.split('@')[0],
-      email: user.email,
+      name: user.displayName || user.email?.split('@')[0] || 'User',
+      email: user.email || '',
       role: 'Member'
     };
 
     try {
       if (wsId) {
-        const wsRes = await fetch(`${API_URL}/workspaces/${wsId}/members`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!wsRes.ok) {
-          const errData = await wsRes.json().catch(() => ({}));
-          throw new Error(errData.error || `Failed to join workspace (${wsRes.status})`);
-        }
+        await addWorkspaceMember(wsId, payload);
       }
 
-      const projRes = await fetch(`${API_URL}/projects/${projectId}/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!projRes.ok) {
-        const errData = await projRes.json().catch(() => ({}));
-        throw new Error(errData.error || `Failed to join project (${projRes.status})`);
-      }
+      await addProjectMember(projectId, payload);
       
-      // Log activity
-      await fetch(`${API_URL}/activity`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user: payload.name,
-          action: 'joined via invite link',
-          target: project.title,
-          workspaceId: wsId
-        })
+      await logActivity({
+        user: payload.name,
+        action: 'joined via invite link',
+        target: project.title || 'Project',
+        workspaceId: wsId
       });
 
-      // Give backend a moment to settle
-      await new Promise(r => setTimeout(r, 1000));
-      navigate('/');
+      navigate(`/?ws=${wsId}&proj=${projectId}`);
     } catch (err) {
-      console.error("Error joining project:", err);
-      setError("Failed to join the project.");
+      console.error("Invite processing error:", err);
+      setError("Failed to join project. " + (err.message || ''));
     }
   };
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-[#DFD6AE]">
-      {error ? (
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-red-500 text-2xl font-bold">!</span>
+    <div className="min-h-screen flex items-center justify-center bg-slate-800 p-4">
+      <div className="bg-surface p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+        {loading ? (
+          <div className="flex flex-col items-center">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-text-primary font-bold">Joining project...</p>
           </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Invite Failed</h2>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <button 
-            onClick={() => navigate('/')}
-            className="w-full py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-colors"
-          >
-            Go to Dashboard
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center">
-          <div className="w-10 h-10 rounded-full border-4 border-[#274245] border-t-transparent animate-spin mb-4"></div>
-          <p className="text-[#274245] font-medium animate-pulse">Joining project...</p>
-        </div>
-      )}
+        ) : error ? (
+          <div>
+            <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-xl">✕</div>
+            <h3 className="text-xl font-bold text-text-primary mb-2">Invitation Error</h3>
+            <p className="text-sm text-text-secondary mb-6">{error}</p>
+            <button 
+              onClick={() => navigate('/')}
+              className="w-full bg-primary text-white py-2.5 rounded-xl font-bold hover:bg-primary/90 transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-text-primary font-bold">Redirecting to project...</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

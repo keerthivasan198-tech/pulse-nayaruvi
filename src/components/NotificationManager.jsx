@@ -3,13 +3,19 @@ import { db, auth } from '../firebase';
 import { ref, onValue } from 'firebase/database';
 import { Bell, X, MessageSquare } from 'lucide-react';
 
-export default function NotificationManager() {
+export default function NotificationManager({ activeWorkspaceId, activeProjectId, onNotificationClick }) {
   const [notifications, setNotifications] = useState([]);
   const initialLoadDone = useRef(false);
   const lastActivityCount = useRef(0);
+  const activeProjectIdRef = useRef(activeProjectId);
 
   useEffect(() => {
-    const activityRef = ref(db, 'dashboard_activity');
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    const path = activeWorkspaceId ? `workspaces/${activeWorkspaceId}/activity` : 'dashboard_activity';
+    const activityRef = ref(db, path);
     const unsubscribe = onValue(activityRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -29,6 +35,11 @@ export default function NotificationManager() {
 
           newActivities.forEach(activity => {
             if (!auth.currentUser) return;
+            
+            const currentProjId = activeProjectIdRef.current;
+            if (activity.projectId && currentProjId && activity.projectId !== currentProjId) {
+              return;
+            }
 
             // Message notifications
             if (
@@ -38,7 +49,8 @@ export default function NotificationManager() {
               const newNotif = {
                 id: Date.now() + Math.random(),
                 title: `New message from ${activity.user}`,
-                content: activity.content
+                content: activity.content,
+                taskId: activity.taskId
               };
               
               setNotifications(prev => [...prev, newNotif]);
@@ -56,7 +68,27 @@ export default function NotificationManager() {
               const newNotif = {
                 id: Date.now() + Math.random(),
                 title: `Task Assigned: ${activity.user}`,
-                content: activity.content
+                content: activity.content,
+                taskId: activity.taskId
+              };
+              
+              setNotifications(prev => [...prev, newNotif]);
+              
+              setTimeout(() => {
+                setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
+              }, 5000);
+            }
+
+            // Task review notifications
+            if (
+              activity.type === 'task_review' && 
+              activity.targetUserId === auth.currentUser.uid
+            ) {
+              const newNotif = {
+                id: Date.now() + Math.random(),
+                title: `Task Ready for Review`,
+                content: activity.content,
+                taskId: activity.taskId
               };
               
               setNotifications(prev => [...prev, newNotif]);
@@ -80,11 +112,17 @@ export default function NotificationManager() {
   if (notifications.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[200] flex flex-col gap-3 pointer-events-none">
+    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-3 pointer-events-none">
       {notifications.map(notif => (
         <div 
           key={notif.id} 
-          className="bg-white rounded-xl shadow-2xl border border-[var(--color-border)] p-4 w-80 flex items-start gap-4 pointer-events-auto animate-in slide-in-from-bottom-5 fade-in duration-300"
+          onClick={() => {
+            if (notif.taskId && onNotificationClick) {
+              onNotificationClick(notif.taskId);
+              dismiss(notif.id);
+            }
+          }}
+          className="bg-surface rounded-xl shadow-2xl border border-[var(--color-border)] p-4 w-80 flex items-start gap-4 pointer-events-auto animate-in slide-in-from-top-5 fade-in duration-300 cursor-pointer hover:bg-slate-800"
         >
           <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-1">
             <MessageSquare size={18} />
@@ -94,7 +132,10 @@ export default function NotificationManager() {
             <p className="text-xs font-medium text-text-secondary line-clamp-2">{notif.content}</p>
           </div>
           <button 
-            onClick={() => dismiss(notif.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              dismiss(notif.id);
+            }}
             className="text-text-secondary hover:text-danger shrink-0 transition-colors mt-1"
           >
             <X size={16} />

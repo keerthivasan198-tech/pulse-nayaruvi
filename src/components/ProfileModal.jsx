@@ -43,21 +43,21 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="celestique-card rounded-2xl w-full max-w-lg p-6 shadow-celestique-lg animate-in fade-in zoom-in duration-200 text-[#2B2420]">
+      <div className="celestique-card rounded-2xl w-full max-w-lg p-6 shadow-celestique-lg animate-in fade-in zoom-in duration-200 text-primary">
         
         {/* Header */}
-        <div className="flex justify-between items-center mb-6 border-b border-[#DDD5CC] pb-4">
+        <div className="flex justify-between items-center mb-6 border-b border-border pb-4">
           <div>
-            <h3 className="text-2xl font-normal text-[#2B2420] font-heading uppercase tracking-wide">
+            <h3 className="text-2xl font-normal text-primary font-heading uppercase tracking-wide">
               Profile Settings
             </h3>
-            <p className="text-xs font-medium text-[#7D7268] mt-0.5">
+            <p className="text-xs font-medium text-text-secondary mt-0.5">
               View and edit your personal details and account information.
             </p>
           </div>
           <button 
             onClick={onClose} 
-            className="text-[#7D7268] hover:text-[#2B2420] p-1.5 rounded-xl hover:bg-black/5 transition-colors cursor-pointer"
+            className="text-text-secondary hover:text-primary p-1.5 rounded-xl hover:bg-black/5 transition-colors cursor-pointer"
           >
             <X size={20} />
           </button>
@@ -67,39 +67,39 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* Avatar Preview */}
-          <div className="flex items-center space-x-4 p-3 bg-white rounded-xl border border-[#DDD5CC]">
+          <div className="flex items-center space-x-4 p-3 bg-surface rounded-xl border border-border">
             <div className="relative">
               <img 
                 src={formData.avatar} 
                 alt="Profile Avatar" 
-                className="w-16 h-16 rounded-full border-2 border-[#2B2420] object-cover shadow-sm"
+                className="w-16 h-16 rounded-full border-2 border-primary object-cover shadow-sm"
               />
-              <div className="absolute bottom-0 right-0 w-5 h-5 bg-[#2B2420] rounded-full flex items-center justify-center text-white text-[10px]">
+              <div className="absolute bottom-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-primary-foreground text-[10px]">
                 <Camera size={11} />
               </div>
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-bold text-[#4A443E] mb-1">Upload Profile Photo</label>
+              <label className="block text-xs font-bold text-text-primary mb-1">Upload Profile Photo</label>
               <input 
                 type="file" 
                 accept="image/*"
                 onChange={handleImageUpload}
-                className="w-full bg-[#FAF8F5] border border-[#DDD5CC] rounded-lg px-3 py-1.5 text-xs text-[#2B2420] focus:outline-none focus:border-[#2B2420] file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-[#2B2420] file:text-white hover:file:bg-black transition-colors"
+                className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-xs text-primary focus:outline-none focus:border-primary file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-primary file:text-primary-foreground hover:file:bg-primary-hover transition-colors"
               />
             </div>
           </div>
 
           {/* Name */}
           <div>
-            <label className="block text-xs font-bold text-[#4A443E] mb-1.5 flex items-center">
-              <User size={14} className="mr-1.5 text-[#7D7268]" /> Full Name
+            <label className="block text-xs font-bold text-text-primary mb-1.5 flex items-center">
+              <User size={14} className="mr-1.5 text-text-secondary" /> Full Name
             </label>
             <input 
               type="text" 
               required
               value={formData.name}
               onChange={e => setFormData({ ...formData, name: e.target.value })}
-              className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm text-[#2B2420] font-medium focus:outline-none focus:border-[#2B2420] transition-all"
+              className="w-full bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm text-primary font-medium focus:outline-none focus:border-primary transition-all"
               placeholder="Your full name"
             />
           </div>
@@ -114,7 +114,7 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
               required
               value={formData.email}
               onChange={e => setFormData({ ...formData, email: e.target.value })}
-              className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm text-[#2B2420] font-medium focus:outline-none focus:border-[#2B2420] transition-all"
+              className="w-full bg-surface border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm text-[#2B2420] font-medium focus:outline-none focus:border-[#2B2420] transition-all"
               placeholder="your.email@nayaruvi.com"
             />
           </div>
@@ -128,7 +128,7 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
               rows={2}
               value={formData.bio}
               onChange={e => setFormData({ ...formData, bio: e.target.value })}
-              className="w-full bg-white border border-[#DDD5CC] rounded-xl p-3 text-xs text-[#2B2420] font-medium focus:outline-none focus:border-[#2B2420] resize-none"
+              className="w-full bg-surface border border-[#DDD5CC] rounded-xl p-3 text-xs text-[#2B2420] font-medium focus:outline-none focus:border-[#2B2420] resize-none"
               placeholder="Tell your team about yourself..."
             />
           </div>

@@ -155,7 +155,7 @@ function Column({ column, tasks }) {
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={`flex-1 min-h-[150px] transition-colors rounded-xl ${
-              snapshot.isDraggingOver ? 'bg-white/[0.02]' : ''
+              snapshot.isDraggingOver ? 'bg-surface/[0.02]' : ''
             }`}
           >
             <div className="space-y-3 min-h-[50px]">
@@ -165,7 +165,7 @@ function Column({ column, tasks }) {
               {provided.placeholder}
             </div>
             
-            <button className="w-full mt-3 py-2 rounded-lg border border-dashed border-[#2a2a30] text-zinc-500 text-sm font-medium hover:bg-white/[0.02] hover:text-zinc-300 transition-colors flex items-center justify-center">
+            <button className="w-full mt-3 py-2 rounded-lg border border-dashed border-[#2a2a30] text-zinc-500 text-sm font-medium hover:bg-surface/[0.02] hover:text-zinc-300 transition-colors flex items-center justify-center">
               <Plus size={16} className="mr-1" /> Add Task
             </button>
           </div>
