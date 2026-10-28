@@ -270,7 +270,20 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
                   className="w-full border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-primary disabled:opacity-50"
                 />
                 {wsError && (
-                  <p className="text-[11px] text-danger font-medium mt-1.5 leading-tight">{wsError}</p>
+                  <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
+                    <p className="font-bold mb-1">Firebase Database is Locked</p>
+                    <p className="text-[11px] mb-2 leading-relaxed">
+                      Your Firebase Realtime Database rules are set to locked mode (<code className="bg-rose-100 px-1 rounded">false</code>), which blocks writes.
+                    </p>
+                    <a 
+                      href="https://console.firebase.google.com/project/pulsenayaruvi/database/pulsenayaruvi-default-rtdb/rules" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="inline-flex items-center text-[11px] font-bold text-white bg-rose-600 px-2.5 py-1.5 rounded-md hover:bg-rose-700 shadow-sm"
+                    >
+                      Click here to Open Firebase Rules ↗
+                    </a>
+                  </div>
                 )}
                 <div className="flex justify-end mt-2 space-x-2">
                   <button 
