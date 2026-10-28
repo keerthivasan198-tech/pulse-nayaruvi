@@ -12,11 +12,20 @@ let serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
 try {
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = require(serviceAccountPath);
-    initializeApp({
-      credential: cert(serviceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL
-    });
-    console.log('✅ Connected to Firebase via serviceAccountKey.json');
+    const dbUrl = process.env.FIREBASE_DATABASE_URL || '';
+    if (serviceAccount.project_id && dbUrl && !dbUrl.includes(serviceAccount.project_id)) {
+      console.warn(`⚠️ serviceAccountKey.json is for project "${serviceAccount.project_id}", but FIREBASE_DATABASE_URL is "${dbUrl}". Skipping mismatched serviceAccountKey.json.`);
+      initializeApp({
+        databaseURL: dbUrl
+      });
+      console.log('✅ Connected to Firebase via databaseURL');
+    } else {
+      initializeApp({
+        credential: cert(serviceAccount),
+        databaseURL: dbUrl
+      });
+      console.log('✅ Connected to Firebase via serviceAccountKey.json');
+    }
   } else {
     // If no service account, try default credentials or direct URL
     initializeApp({

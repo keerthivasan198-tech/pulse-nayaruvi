@@ -98,7 +98,9 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
       setIsOpen(false);
     } catch (err) {
       console.error('Failed to create workspace:', err);
-      setWsError(err.message || 'Failed to create workspace.');
+      const msg = err.message || 'Failed to create workspace.';
+      setWsError(msg);
+      alert('Failed to create workspace:\n\n' + msg + '\n\nPlease ensure Realtime Database Rules allow read/write in Firebase Console.');
     } finally {
       setWsCreating(false);
     }
@@ -261,14 +263,31 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
                 <input 
                   type="text" 
                   autoFocus
+                  disabled={wsCreating}
                   value={newWsName}
-                  onChange={e => setNewWsName(e.target.value)}
+                  onChange={e => { setNewWsName(e.target.value); setWsError(''); }}
                   placeholder="Workspace Name"
-                  className="w-full border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-primary"
+                  className="w-full border border-border rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-primary disabled:opacity-50"
                 />
+                {wsError && (
+                  <p className="text-[11px] text-danger font-medium mt-1.5 leading-tight">{wsError}</p>
+                )}
                 <div className="flex justify-end mt-2 space-x-2">
-                  <button type="button" onClick={() => setIsCreating(false)} className="text-xs text-text-secondary font-bold">Cancel</button>
-                  <button type="submit" className="text-xs bg-primary text-white px-2 py-1 rounded font-bold">Create</button>
+                  <button 
+                    type="button" 
+                    disabled={wsCreating}
+                    onClick={() => { setIsCreating(false); setWsError(''); }} 
+                    className="text-xs text-text-secondary font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={wsCreating || !newWsName.trim()}
+                    className="text-xs bg-primary text-white px-3 py-1 rounded font-bold disabled:opacity-50 flex items-center"
+                  >
+                    {wsCreating ? 'Creating...' : 'Create'}
+                  </button>
                 </div>
               </form>
             ) : (

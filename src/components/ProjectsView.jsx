@@ -61,6 +61,7 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
       setIsCreating(false);
     } catch (err) {
       console.error('Failed to create project:', err);
+      alert('Failed to create project: ' + (err.message || 'Error occurred'));
     }
   };
 

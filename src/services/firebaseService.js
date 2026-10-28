@@ -37,7 +37,12 @@ export async function createWorkspace({ name, uid, email, displayName }) {
     }
   };
 
-  await set(wsRef, workspaceData);
+  const savePromise = set(wsRef, workspaceData);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Database connection timed out (6s). Please check if Realtime Database is enabled in Firebase Console and rules allow write.")), 6000)
+  );
+
+  await Promise.race([savePromise, timeoutPromise]);
 
   // Index under user_workspaces for rapid lookup
   try {
