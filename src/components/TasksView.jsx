@@ -22,6 +22,7 @@ const COLUMNS = {
   'col-completed': { id: 'col-completed', title: 'Completed', color: 'text-success', badge: 'bg-success/10 text-success' },
 };
 const COLUMN_ORDER = ['col-todo', 'col-progress', 'col-review', 'col-completed'];
+const API_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5000/api');
 
 export default function TasksView({ activeWorkspaceId, activeProjectId }) {
   const [searchParams] = useSearchParams();
@@ -109,6 +110,30 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
         status: destination.droppableId,
         order: newOrder
       });
+
+      // Send status change notification email to task creator
+      if (destination.droppableId !== source.droppableId) {
+        const movedTask = tasks.find(t => t.id === draggableId);
+        const creatorEmail = movedTask?.creatorEmail || movedTask?.assignedByEmail;
+        if (creatorEmail && API_URL) {
+          fetch(`${API_URL}/notify/task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: movedTask.content || 'Task',
+              previousStatus: source.droppableId,
+              newStatus: destination.droppableId,
+              updatedByName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member',
+              creatorEmail,
+              creatorName: movedTask.creatorName || movedTask.assignedBy || 'Task Creator',
+              projectTitle: projects.find(p => p.id === activeProjectId)?.title || 'Project',
+              workspaceId: activeWorkspaceId,
+              projectId: activeProjectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Task status notification error:", e));
+        }
+      }
     } catch (error) {
       console.error("Move task error:", error);
     }
@@ -132,6 +157,11 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
     const projectTitle = projects.find(p => p.id === activeProjectId)?.title || 'General';
 
     try {
+      const creatorName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member';
+      const creatorEmail = auth.currentUser?.email || '';
+      const creatorId = auth.currentUser?.uid || '';
+      const assignee = taskData.assigneeId ? projectMembers.find(m => m.uid === taskData.assigneeId) : null;
+
       await createTask(activeWorkspaceId, activeProjectId, {
         content: newTaskContent,
         status: columnId,
@@ -140,16 +170,42 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
         project: projectTitle,
         priority: taskData.priority || 'Normal',
         assigneeId: taskData.assigneeId || '',
+        assigneeName: assignee?.name || assignee?.email || '',
+        assigneeEmail: assignee?.email || '',
+        creatorId,
+        creatorName,
+        creatorEmail,
+        assignedBy: creatorName,
+        assignedByEmail: creatorEmail,
         dueDate: taskData.dueDate || '',
         description: '',
         photoBase64: taskData.photoBase64 || null,
         createdAt: new Date().toISOString()
       });
 
+      // Dispatch automated email notification to assignee
+      if (assignee && assignee.email && API_URL) {
+        fetch(`${API_URL}/notify/task-assigned`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskContent: newTaskContent,
+            assigneeEmail: assignee.email,
+            assigneeName: assignee.name || assignee.email.split('@')[0],
+            assignedByName: creatorName,
+            projectTitle,
+            priority: taskData.priority || 'Normal',
+            dueDate: taskData.dueDate || '',
+            workspaceId: activeWorkspaceId,
+            projectId: activeProjectId,
+            origin: window.location.origin
+          })
+        }).catch(e => console.warn("Task assignment email dispatch error:", e));
+      }
+
       if (taskData.assigneeId && taskData.assigneeId !== auth.currentUser?.uid) {
-        const assignee = projectMembers.find(m => m.uid === taskData.assigneeId);
         await logActivity(activeWorkspaceId, {
-          user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0],
+          user: creatorName,
           action: 'assigned a task to',
           target: assignee ? (assignee.name || assignee.email) : 'someone',
           targetUserId: taskData.assigneeId,
@@ -422,7 +478,30 @@ function KanbanCard({ task, index, onTaskClick, projectMembers = [], activeWorks
   const handleComplete = async (e) => {
     e.stopPropagation();
     try {
-      await updateTask(task.workspaceId || activeWorkspaceId, task.projectId || activeProjectId, task.id, { status: 'col-completed' });
+      if (task.status !== 'col-completed') {
+        await updateTask(task.workspaceId || activeWorkspaceId, task.projectId || activeProjectId, task.id, { status: 'col-completed' });
+        
+        // Notify task creator that task was completed
+        const creatorEmail = task.creatorEmail || task.assignedByEmail;
+        if (creatorEmail && API_URL) {
+          fetch(`${API_URL}/notify/task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: task.content || 'Task',
+              previousStatus: task.status,
+              newStatus: 'col-completed',
+              updatedByName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member',
+              creatorEmail,
+              creatorName: task.creatorName || task.assignedBy || 'Task Creator',
+              projectTitle: task.project || 'Project',
+              workspaceId: task.workspaceId || activeWorkspaceId,
+              projectId: task.projectId || activeProjectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Complete task notification error:", e));
+        }
+      }
     } catch (err) {
       console.error("Complete task error:", err);
     }

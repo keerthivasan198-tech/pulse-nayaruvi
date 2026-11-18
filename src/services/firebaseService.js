@@ -1,4 +1,5 @@
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
+import { updateProfile } from 'firebase/auth';
 import { 
   ref, 
   push, 
@@ -480,28 +481,49 @@ export async function inviteProjectMember(workspaceId, projectId, { email, name,
   return inviteData;
 }
 
-export async function acceptProjectInvite(workspaceId, projectId, user) {
+export async function acceptProjectInvite(workspaceId, projectId, user, inviteId) {
   if (!workspaceId || !projectId || !user?.uid) {
     throw new Error("workspaceId, projectId, and user are required to accept invite");
   }
 
   // 1. Inherit role from invite record if available
   let assignedRole = 'Member';
+  let matchedInviteKey = null;
   const userEmail = (user.email || '').toLowerCase().trim();
+
   try {
-    const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
-    if (invitesSnap.exists()) {
-      const invites = invitesSnap.val();
-      for (const [key, inv] of Object.entries(invites)) {
-        if (inv.email && inv.email.toLowerCase().trim() === userEmail) {
-          if (inv.role) assignedRole = inv.role;
-          await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${key}`), {
-            status: 'Accepted',
-            acceptedAt: new Date().toISOString(),
-            acceptedUid: user.uid
-          });
+    // Check by inviteId first if present
+    if (inviteId) {
+      const singleSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${inviteId}`));
+      if (singleSnap.exists()) {
+        const inv = singleSnap.val();
+        if (inv?.role) assignedRole = inv.role;
+        matchedInviteKey = inviteId;
+      }
+    }
+
+    // Fallback: match by email if inviteId wasn't found or provided
+    if (!matchedInviteKey) {
+      const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
+      if (invitesSnap.exists()) {
+        const invites = invitesSnap.val();
+        for (const [key, inv] of Object.entries(invites)) {
+          if (inv.email && inv.email.toLowerCase().trim() === userEmail) {
+            if (inv.role) assignedRole = inv.role;
+            matchedInviteKey = key;
+            break;
+          }
         }
       }
+    }
+
+    // Mark invite as accepted in Firebase
+    if (matchedInviteKey) {
+      await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${matchedInviteKey}`), {
+        status: 'Accepted',
+        acceptedAt: new Date().toISOString(),
+        acceptedUid: user.uid
+      });
     }
   } catch (e) {
     console.warn("Could not check/update invite status:", e);
@@ -687,4 +709,87 @@ export function subscribeToActivities(workspaceId, callback, limit = 50) {
       callback([]);
     }
   });
+}
+
+// ==========================================
+// 6. USER PROFILES
+// Path: /users/{uid}
+// ==========================================
+
+export async function getUserProfile(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await get(ref(db, `users/${uid}`));
+    if (snap.exists()) {
+      return snap.val();
+    }
+  } catch (err) {
+    console.warn("Could not fetch user profile from RTDB:", err.message);
+  }
+  return null;
+}
+
+export function subscribeToUserProfile(uid, callback) {
+  if (!uid) return () => {};
+  const userRef = ref(db, `users/${uid}`);
+  return onValue(userRef, (snap) => {
+    if (snap.exists()) {
+      callback(snap.val());
+    } else {
+      callback(null);
+    }
+  }, (err) => {
+    console.warn("subscribeToUserProfile error:", err);
+  });
+}
+
+export async function saveUserProfile(uid, profileData, activeWorkspaceId) {
+  if (!uid) throw new Error("User ID is required to save profile");
+
+  const cleanData = {
+    uid,
+    name: profileData.name || '',
+    displayName: profileData.name || '',
+    email: profileData.email || '',
+    bio: profileData.bio || '',
+    avatar: profileData.avatar || '',
+    photoURL: profileData.avatar || '',
+    role: profileData.role || '',
+    updatedAt: new Date().toISOString()
+  };
+
+  // 1. Save directly to /users/{uid} in Firebase Realtime Database
+  await set(ref(db, `users/${uid}`), cleanData);
+
+  // 2. Also update Firebase Auth profile (displayName & photoURL) if currentUser matches
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+    try {
+      // Firebase auth photoURL cannot exceed 2048 chars; if it's a URL, sync it
+      const authPhoto = cleanData.avatar && cleanData.avatar.startsWith('http') ? cleanData.avatar : undefined;
+      await updateProfile(auth.currentUser, {
+        displayName: cleanData.name,
+        ...(authPhoto ? { photoURL: authPhoto } : {})
+      });
+    } catch (authErr) {
+      console.warn("Could not update Firebase Auth profile:", authErr.message);
+    }
+  }
+
+  // 3. Sync member info in active workspace so team cards reflect updated name and avatar
+  if (activeWorkspaceId) {
+    try {
+      const memberRef = ref(db, `workspaces/${activeWorkspaceId}/members/${uid}`);
+      const mSnap = await get(memberRef);
+      if (mSnap.exists()) {
+        await update(memberRef, {
+          name: cleanData.name,
+          ...(cleanData.avatar ? { avatar: cleanData.avatar } : {})
+        });
+      }
+    } catch (wsErr) {
+      console.warn("Could not update workspace member card:", wsErr.message);
+    }
+  }
+
+  return cleanData;
 }

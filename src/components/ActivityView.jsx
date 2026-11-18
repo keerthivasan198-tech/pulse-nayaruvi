@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { ref, onValue, remove, update } from 'firebase/database';
 import { Video, Megaphone, Send, Pencil, Trash2, X, Check } from 'lucide-react';
-import { logActivity, subscribeToActivities, subscribeToProjects } from '../services/firebaseService';
+import { logActivity, subscribeToActivities, subscribeToProjects, getWorkspace, getProject } from '../services/firebaseService';
+
+const API_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5000/api');
 
 export default function ActivityView({ activeWorkspaceId, activeProjectId }) {
   const [activities, setActivities] = useState([]);
@@ -10,6 +12,8 @@ export default function ActivityView({ activeWorkspaceId, activeProjectId }) {
   const [newAnnouncement, setNewAnnouncement] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
+  const [isPosting, setIsPosting] = useState(false);
+  const [statusMsg, setStatusMsg] = useState(null);
 
   useEffect(() => {
     if (!activeWorkspaceId) {
@@ -45,22 +49,98 @@ export default function ActivityView({ activeWorkspaceId, activeProjectId }) {
 
   const handlePostAnnouncement = async (e) => {
     e.preventDefault();
-    if (!newAnnouncement.trim() || !activeWorkspaceId) return;
+    if (!newAnnouncement.trim() || !activeWorkspaceId || isPosting) return;
+
+    setIsPosting(true);
+    setStatusMsg(null);
+    const announcementText = newAnnouncement.trim();
 
     try {
+      // 1. Fetch current workspace and project details for title and recipients
+      let workspaceData = null;
+      let projectData = null;
+      try {
+        workspaceData = await getWorkspace(activeWorkspaceId);
+      } catch (e) {
+        console.warn('Could not fetch workspace data:', e);
+      }
+
+      if (activeProjectId) {
+        try {
+          projectData = await getProject(activeWorkspaceId, activeProjectId);
+        } catch (e) {
+          console.warn('Could not fetch project data:', e);
+        }
+      }
+
+      const projTitle = projectData?.title || projects.find(p => p.id === activeProjectId)?.title || '';
+      const wsName = workspaceData?.name || 'Workspace';
+      const authorName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Lead';
+
+      // 2. Log activity in Firebase RTDB
       await logActivity({
-        user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+        user: authorName,
         action: 'posted an announcement',
-        target: activeProjectId ? `in ${projects.find(p => p.id === activeProjectId)?.title || 'Project'}` : 'to the Workspace',
-        content: newAnnouncement,
+        target: projTitle ? `in ${projTitle}` : 'to the Workspace',
+        content: announcementText,
         type: 'announcement',
         workspaceId: activeWorkspaceId,
         projectId: activeProjectId || null,
         uid: auth.currentUser?.uid
       });
+
+      // 3. Collect recipient email addresses
+      const emailSet = new Set();
+      if (projectData) {
+        (projectData.members || []).forEach(m => { if (m?.email) emailSet.add(m.email.toLowerCase().trim()); });
+        (projectData.invites || []).forEach(i => { if (i?.email) emailSet.add(i.email.toLowerCase().trim()); });
+      }
+      if (workspaceData) {
+        (workspaceData.members || []).forEach(m => { if (m?.email) emailSet.add(m.email.toLowerCase().trim()); });
+      }
+
+      const recipientEmails = Array.from(emailSet).filter(email => email && email.includes('@'));
+
+      // 4. Send email notification via backend
+      let emailDispatched = false;
+      if (recipientEmails.length > 0) {
+        try {
+          const resp = await fetch(`${API_URL}/notify/announcement`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              announcement: announcementText,
+              authorName,
+              projectTitle: projTitle,
+              workspaceName: wsName,
+              recipients: recipientEmails,
+              workspaceId: activeWorkspaceId,
+              projectId: activeProjectId || null,
+              origin: window.location.origin
+            })
+          });
+          const result = await resp.json();
+          emailDispatched = !!result?.emailSent;
+        } catch (err) {
+          console.warn('Could not send announcement email notification:', err);
+        }
+      }
+
       setNewAnnouncement('');
+      if (emailDispatched) {
+        setStatusMsg({ type: 'success', text: `📢 Announcement posted & emailed to ${recipientEmails.length} team member(s)!` });
+      } else if (recipientEmails.length > 0) {
+        setStatusMsg({ type: 'info', text: `📢 Announcement posted to feed (emails queued for ${recipientEmails.length} members).` });
+      } else {
+        setStatusMsg({ type: 'info', text: '📢 Announcement posted to workspace feed.' });
+      }
+
+      setTimeout(() => setStatusMsg(null), 5000);
     } catch (err) {
-      console.error(err);
+      console.error('Error posting announcement:', err);
+      setStatusMsg({ type: 'error', text: 'Failed to post announcement. Please try again.' });
+    } finally {
+      setIsPosting(false);
     }
   };
 
@@ -225,6 +305,18 @@ export default function ActivityView({ activeWorkspaceId, activeProjectId }) {
                 </div>
               )}
 
+              {statusMsg && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${
+                  statusMsg.type === 'success' 
+                    ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' 
+                    : statusMsg.type === 'error'
+                    ? 'bg-red-500/10 text-red-600 border border-red-500/20'
+                    : 'bg-primary/10 text-primary border border-primary/20'
+                }`}>
+                  {statusMsg.text}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-text-secondary mb-1.5">Announcement Content</label>
                 <textarea
@@ -233,14 +325,22 @@ export default function ActivityView({ activeWorkspaceId, activeProjectId }) {
                   onChange={(e) => setNewAnnouncement(e.target.value)}
                   placeholder="Share a status update or Google Meet link..."
                   className="w-full bg-surface border border-border rounded-xl p-3 text-xs font-medium text-primary focus:outline-none focus:border-primary resize-none"
+                  disabled={isPosting}
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2.5 btn-matte-primary rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center cursor-pointer font-heading"
+                disabled={isPosting || !newAnnouncement.trim()}
+                className="w-full py-2.5 btn-matte-primary rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center cursor-pointer font-heading disabled:opacity-50"
               >
-                <Send size={14} className="mr-2" /> Post Announcement
+                {isPosting ? (
+                  <>Posting & Notifying...</>
+                ) : (
+                  <>
+                    <Send size={14} className="mr-2" /> Post Announcement
+                  </>
+                )}
               </button>
             </form>
           </div>

@@ -27,6 +27,10 @@
             "checklist": {
               ".read": "auth != null",
               ".write": "auth != null"
+            },
+            "invites": {
+              ".read": "auth != null",
+              ".write": "auth != null"
             }
           }
         },
@@ -40,6 +44,12 @@
       "$uid": {
         ".read": "auth != null && auth.uid == $uid",
         ".write": "auth != null"
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
       }
     }
   }
