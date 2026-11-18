@@ -65,9 +65,9 @@ export default function SettingsView({ activeWorkspaceId }) {
 
   // Handle Role Change in Project
   const handleProjectRoleChange = async (projectId, memberUid, newRole) => {
-    if (!projectId || !memberUid) return;
+    if (!activeWorkspaceId || !projectId || !memberUid) return;
     try {
-      await updateProjectMemberRole(projectId, memberUid, newRole);
+      await updateProjectMemberRole(activeWorkspaceId, projectId, memberUid, newRole);
       showStatus("Project member role updated successfully!");
       fetchData();
     } catch (err) {
@@ -99,20 +99,22 @@ export default function SettingsView({ activeWorkspaceId }) {
       });
 
       // 2. Try sending email via backend if available
-      try {
-        await fetch(`${API_URL}/invite`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: newMemberEmail.trim(),
-            name: memberName,
-            role: newMemberRole,
-            workspaceId: activeWorkspaceId,
-            projectId: selectedProjectId
-          })
-        });
-      } catch (e) {
-        // Fallback silently if serverless
+      if (API_URL && !API_URL.includes('localhost')) {
+        try {
+          await fetch(`${API_URL}/invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: newMemberEmail.trim(),
+              name: memberName,
+              role: newMemberRole,
+              workspaceId: activeWorkspaceId,
+              projectId: selectedProjectId
+            })
+          });
+        } catch (e) {
+          // Fallback silently if serverless
+        }
       }
 
       // 3. Copy invite link to clipboard for convenience
