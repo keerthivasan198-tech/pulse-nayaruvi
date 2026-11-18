@@ -18,11 +18,16 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
 
     const unSub = subscribeToProjects(activeWorkspaceId, auth.currentUser.uid, (projList) => {
       setProjects(projList);
+      if (projList.length > 0) {
+        if (!activeProjectId || !projList.some(p => p.id === activeProjectId)) {
+          setActiveProjectId(projList[0].id);
+        }
+      }
       setLoading(false);
     });
 
     return () => unSub();
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, activeProjectId, setActiveProjectId]);
 
   // Handle click outside to close dropdown
   useEffect(() => {

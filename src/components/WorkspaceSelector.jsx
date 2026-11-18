@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { auth } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { Settings, UserPlus, Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { 
   createWorkspace, 
@@ -24,28 +25,35 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
 
   // Subscribe to workspaces in real-time
   useEffect(() => {
-    let unSub = () => {};
-    import('firebase/auth').then(({ onAuthStateChanged }) => {
-      unSub = onAuthStateChanged(auth, (user) => {
-        if (user) {
-          const unsubscribeWs = subscribeToUserWorkspaces(user.uid, (wsList) => {
-            setWorkspaces(wsList);
-            if (wsList.length > 0 && !activeWorkspaceId) {
-              setActiveWorkspaceId(wsList[0].id);
-            }
-            setHasFetched(true);
-            setLoading(false);
-          });
-          return unsubscribeWs;
-        } else {
-          setWorkspaces([]);
+    let unSubWs = () => {};
+    const unSubAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        unSubWs = subscribeToUserWorkspaces(user.uid, (wsList) => {
+          setWorkspaces(wsList);
+          setHasFetched(true);
           setLoading(false);
-        }
-      });
+        });
+      } else {
+        setWorkspaces([]);
+        setLoading(false);
+        setHasFetched(true);
+      }
     });
 
-    return () => unSub();
-  }, [activeWorkspaceId, setActiveWorkspaceId]);
+    return () => {
+      unSubAuth();
+      unSubWs();
+    };
+  }, []);
+
+  // Ensure an active workspace is selected when workspaces are loaded
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      if (!activeWorkspaceId || !workspaces.some(w => w.id === activeWorkspaceId)) {
+        setActiveWorkspaceId(workspaces[0].id);
+      }
+    }
+  }, [workspaces, activeWorkspaceId, setActiveWorkspaceId]);
 
   // Subscribe to projects in active workspace
   useEffect(() => {
@@ -77,30 +85,37 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
     setWsError('');
-    if (!newWsName.trim()) return;
+    const trimmed = newWsName.trim();
+    if (!trimmed) return;
     if (!auth.currentUser) {
-      setWsError('You must be logged in to create a workspace.');
+      const msg = 'You must be logged in to create a workspace.';
+      setWsError(msg);
+      alert(msg);
       return;
     }
 
     setWsCreating(true);
     try {
       const newWs = await createWorkspace({
-        name: newWsName,
+        name: trimmed,
         uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        displayName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0]
+        email: auth.currentUser.email || '',
+        displayName: auth.currentUser.displayName || (auth.currentUser.email ? auth.currentUser.email.split('@')[0] : 'User')
       });
 
       setNewWsName('');
       setIsCreating(false);
+      setWorkspaces(prev => {
+        if (prev.some(w => w.id === newWs.id)) return prev;
+        return [...prev, newWs];
+      });
       setActiveWorkspaceId(newWs.id);
       setIsOpen(false);
     } catch (err) {
       console.error('Failed to create workspace:', err);
       const msg = err.message || 'Failed to create workspace.';
       setWsError(msg);
-      alert('Failed to create workspace:\n\n' + msg + '\n\nPlease ensure Realtime Database Rules allow read/write in Firebase Console.');
+      alert('Failed to create workspace:\n\n' + msg);
     } finally {
       setWsCreating(false);
     }

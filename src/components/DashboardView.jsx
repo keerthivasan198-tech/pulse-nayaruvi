@@ -44,32 +44,45 @@ export default function DashboardView({ activeWorkspaceId }) {
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
-    if (!newProject.title || !auth.currentUser || !activeWorkspaceId) return;
+    const trimmedTitle = newProject.title.trim();
+    if (!trimmedTitle) {
+      alert("Please enter a project title.");
+      return;
+    }
+    if (!activeWorkspaceId) {
+      alert("Please create or select a workspace first before creating a project.");
+      return;
+    }
+    if (!auth.currentUser) {
+      alert("You must be logged in to create a project.");
+      return;
+    }
 
     try {
       await createProject({
-        title: newProject.title,
+        title: trimmedTitle,
         status: 'Active',
         category: newProject.category || 'General',
         workspaceId: activeWorkspaceId,
         uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        displayName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0],
+        email: auth.currentUser.email || '',
+        displayName: auth.currentUser.displayName || (auth.currentUser.email ? auth.currentUser.email.split('@')[0] : 'User'),
         dueDays: newProject.dueDays || '7'
       });
       
       await logActivity({
-        user: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'User',
+        user: auth.currentUser.displayName || (auth.currentUser.email ? auth.currentUser.email.split('@')[0] : 'User'),
         action: 'created project',
-        target: newProject.title,
+        target: trimmedTitle,
         type: 'project',
         workspaceId: activeWorkspaceId
-      });
+      }).catch(() => {});
 
       setIsProjectModalOpen(false);
       setNewProject({ title: '', category: '', dueDays: '7' });
     } catch (error) {
       console.error("Create project error:", error);
+      alert("Failed to create project: " + (error.message || "Please check your network connection."));
     }
   };
 

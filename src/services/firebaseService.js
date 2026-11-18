@@ -20,35 +20,34 @@ export async function createWorkspace({ name, uid, email, displayName }) {
   
   const wsRef = push(ref(db, 'workspaces'));
   const key = wsRef.key;
+  const safeName = name.trim();
+  const safeEmail = email || '';
+  const safeDisplayName = displayName || (safeEmail ? safeEmail.split('@')[0] : 'User');
   
   const workspaceData = {
     id: key,
     _id: key,
-    name: name.trim(),
+    name: safeName,
     createdAt: new Date().toISOString(),
     createdBy: uid,
     members: {
       [uid]: {
         uid,
-        email: email || '',
-        name: displayName || (email ? email.split('@')[0] : 'User'),
+        email: safeEmail,
+        name: safeDisplayName,
         role: 'Founder'
       }
     }
   };
 
-  const savePromise = set(wsRef, workspaceData);
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Database connection timed out (6s). Please check if Realtime Database is enabled in Firebase Console and rules allow write.")), 6000)
-  );
-
-  await Promise.race([savePromise, timeoutPromise]);
+  // Save workspace directly
+  await set(wsRef, workspaceData);
 
   // Index under user_workspaces for rapid lookup
   try {
     await set(ref(db, `user_workspaces/${uid}/${key}`), {
       workspaceId: key,
-      name: name.trim(),
+      name: safeName,
       joinedAt: new Date().toISOString()
     });
   } catch (err) {
@@ -60,26 +59,93 @@ export async function createWorkspace({ name, uid, email, displayName }) {
 
 export async function getUserWorkspaces(uid) {
   if (!uid) return [];
-  const snapshot = await get(ref(db, 'workspaces'));
-  if (!snapshot.exists()) return [];
+  // 1. Try reading directly from /workspaces
+  try {
+    const snapshot = await get(ref(db, 'workspaces'));
+    if (snapshot.exists()) {
+      const all = snapshot.val();
+      const list = Object.keys(all)
+        .filter(key => all[key]?.members && all[key].members[uid])
+        .map(key => ({
+          _id: key,
+          id: key,
+          ...all[key],
+          membersList: all[key].members ? Object.values(all[key].members) : []
+        }));
+      if (list.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn('Direct workspaces read failed, falling back to user index:', err);
+  }
 
-  const all = snapshot.val();
-  return Object.keys(all)
-    .filter(key => all[key]?.members && all[key].members[uid])
-    .map(key => ({
-      _id: key,
-      id: key,
-      ...all[key],
-      membersList: all[key].members ? Object.values(all[key].members) : []
-    }));
+  // 2. Fallback to /user_workspaces/{uid}
+  try {
+    const indexSnap = await get(ref(db, `user_workspaces/${uid}`));
+    if (indexSnap.exists()) {
+      const indexData = indexSnap.val();
+      const wsIds = Object.keys(indexData);
+      const promises = wsIds.map(async (wsId) => {
+        const snap = await get(ref(db, `workspaces/${wsId}`));
+        if (snap.exists()) {
+          const val = snap.val();
+          return {
+            _id: wsId,
+            id: wsId,
+            ...val,
+            membersList: val.members ? Object.values(val.members) : []
+          };
+        }
+        return null;
+      });
+      return (await Promise.all(promises)).filter(Boolean);
+    }
+  } catch (err) {
+    console.error('Error fetching user_workspaces index:', err);
+  }
+
+  return [];
 }
 
 export function subscribeToUserWorkspaces(uid, callback) {
   if (!uid) return () => {};
+
+  let isSubscribed = true;
+
+  // Function to load workspaces from index
+  const loadFromIndex = async () => {
+    try {
+      const indexSnap = await get(ref(db, `user_workspaces/${uid}`));
+      if (indexSnap.exists() && isSubscribed) {
+        const indexData = indexSnap.val();
+        const wsIds = Object.keys(indexData);
+        const promises = wsIds.map(async (wsId) => {
+          const snap = await get(ref(db, `workspaces/${wsId}`));
+          if (snap.exists()) {
+            const val = snap.val();
+            return {
+              _id: wsId,
+              id: wsId,
+              ...val,
+              membersList: val.members ? Object.values(val.members) : []
+            };
+          }
+          return null;
+        });
+        const list = (await Promise.all(promises)).filter(Boolean);
+        if (isSubscribed) callback(list);
+      } else if (isSubscribed) {
+        callback([]);
+      }
+    } catch (e) {
+      if (isSubscribed) callback([]);
+    }
+  };
+
   const wsRef = ref(db, 'workspaces');
-  return onValue(wsRef, (snapshot) => {
+  const unsubscribeAll = onValue(wsRef, (snapshot) => {
+    if (!isSubscribed) return;
     if (!snapshot.exists()) {
-      callback([]);
+      loadFromIndex();
       return;
     }
     const all = snapshot.val();
@@ -91,8 +157,27 @@ export function subscribeToUserWorkspaces(uid, callback) {
         ...all[key],
         membersList: all[key].members ? Object.values(all[key].members) : []
       }));
-    callback(userWorkspaces);
+    if (userWorkspaces.length > 0) {
+      callback(userWorkspaces);
+    } else {
+      loadFromIndex();
+    }
+  }, (err) => {
+    console.warn("Workspaces listener warning:", err);
+    loadFromIndex();
   });
+
+  // Also listen to changes on user_workspaces index
+  const indexRef = ref(db, `user_workspaces/${uid}`);
+  const unsubscribeIndex = onValue(indexRef, () => {
+    if (isSubscribed) loadFromIndex();
+  }, () => {});
+
+  return () => {
+    isSubscribed = false;
+    unsubscribeAll();
+    unsubscribeIndex();
+  };
 }
 
 export async function getWorkspace(id) {
@@ -171,25 +256,35 @@ export async function createProject({ title, status, workspaceId, uid, email, di
 
   const projRef = push(ref(db, `workspaces/${workspaceId}/projects`));
   const key = projRef.key;
+  const safeTitle = title.trim();
+  const safeStatus = status || 'Active';
+  const safeCategory = category || 'General';
+  const safeDays = parseInt(dueDays || 7) || 7;
+  const safeDueDate = dueDate || new Date(Date.now() + safeDays * 24 * 60 * 60 * 1000).toISOString();
+  const safeEmail = email || '';
+  const safeName = displayName || (safeEmail ? safeEmail.split('@')[0] : 'User');
 
   const projectData = {
     id: key,
     _id: key,
-    title: title.trim(),
-    status: status || 'Active',
-    category: category || 'General',
+    title: safeTitle,
+    status: safeStatus,
+    category: safeCategory,
     workspaceId,
     createdAt: new Date().toISOString(),
-    dueDate: dueDate || new Date(Date.now() + parseInt(dueDays || 7) * 24 * 60 * 60 * 1000).toISOString(),
-    members: {
-      [uid]: {
-        uid,
-        email: email || '',
-        name: displayName || (email ? email.split('@')[0] : 'User'),
-        role: 'Founder'
-      }
-    }
+    dueDate: safeDueDate,
+    members: {}
   };
+
+  if (uid) {
+    projectData.members[uid] = {
+      uid,
+      email: safeEmail,
+      name: safeName,
+      role: 'Founder',
+      joinedAt: new Date().toISOString()
+    };
+  }
 
   // Write strictly to workspace branch
   await set(projRef, projectData);
@@ -234,6 +329,9 @@ export function subscribeToProjects(workspaceId, uid, callback) {
     } else {
       callback([]);
     }
+  }, (err) => {
+    console.warn("subscribeToProjects error:", err);
+    callback([]);
   });
 }
 

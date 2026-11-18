@@ -45,16 +45,28 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
-    if (!newProject.title.trim() || !activeWorkspaceId || !auth.currentUser) return;
+    const trimmedTitle = newProject.title.trim();
+    if (!trimmedTitle) {
+      alert("Please enter a project title.");
+      return;
+    }
+    if (!activeWorkspaceId) {
+      alert("Please create or select a workspace first before creating a project.");
+      return;
+    }
+    if (!auth.currentUser) {
+      alert("You must be logged in to create a project.");
+      return;
+    }
 
     try {
       await createProject({
-        title: newProject.title,
-        status: newProject.status,
+        title: trimmedTitle,
+        status: newProject.status || 'Active',
         workspaceId: activeWorkspaceId,
         uid: auth.currentUser.uid,
-        email: auth.currentUser.email,
-        displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
+        email: auth.currentUser.email || '',
+        displayName: auth.currentUser.displayName || (auth.currentUser.email ? auth.currentUser.email.split('@')[0] : 'User')
       });
       
       setNewProject({ title: '', status: 'Active' });
