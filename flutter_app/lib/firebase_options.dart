@@ -33,9 +33,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAOfHh7O_IddxXKbNs18zqdDj6wVoHpnZE',
-    appId: '1:346073671129:android:40a4a22b56cd08f1f6e5c8',
+    appId: '1:346073671129:web:40a4a22b56cd08f1f6e5c8',
     messagingSenderId: '346073671129',
     projectId: 'pulsenayaruvi',
+    authDomain: 'pulsenayaruvi.firebaseapp.com',
     databaseURL: 'https://pulsenayaruvi-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'pulsenayaruvi.firebasestorage.app',
   );

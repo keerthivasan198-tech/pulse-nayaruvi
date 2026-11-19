@@ -1,136 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 import '../../constants/theme.dart';
 import '../../models/models.dart';
-import '../../providers/app_state.dart';
-import '../../services/api_service.dart';
-import '../../services/database_service.dart';
 
-class TaskDetailSheet extends StatefulWidget {
+class TaskDetailSheet extends StatelessWidget {
   final TaskItem task;
 
   const TaskDetailSheet({super.key, required this.task});
 
-  @override
-  State<TaskDetailSheet> createState() => _TaskDetailSheetState();
-}
-
-class _TaskDetailSheetState extends State<TaskDetailSheet> {
-  final DatabaseService _dbService = DatabaseService();
-  late String _currentStatus;
-  bool _isUpdating = false;
-
-  final Map<String, String> _columns = {
+  static const Map<String, String> _columns = {
     'col-todo': 'To Do',
     'col-progress': 'In Progress',
     'col-review': 'Under Review',
     'col-completed': 'Completed',
   };
 
-  @override
-  void initState() {
-    super.initState();
-    _currentStatus = widget.task.columnId;
-  }
-
-  Future<void> _updateStatus(String newStatus) async {
-    if (newStatus == _currentStatus) return;
-    final state = Provider.of<AppState>(context, listen: false);
-    if (state.activeWorkspace == null || state.activeProject == null) return;
-
-    final oldStatus = _currentStatus;
-    setState(() {
-      _currentStatus = newStatus;
-      _isUpdating = true;
-    });
-
-    try {
-      // 1. Update in RTDB
-      await _dbService.updateTask(
-        state.activeWorkspace!.id,
-        state.activeProject!.id,
-        widget.task.id,
-        {'columnId': newStatus},
-      );
-
-      // 2. Dispatch status update email to the assignor/creator if email exists
-      final recipientEmail = widget.task.assignedByEmail.isNotEmpty
-          ? widget.task.assignedByEmail
-          : widget.task.creatorEmail;
-
-      if (recipientEmail.isNotEmpty) {
-        ApiService.sendTaskStatusNotification(
-          taskContent: widget.task.content,
-          previousStatus: oldStatus,
-          newStatus: newStatus,
-          updatedByName: state.currentUser?.displayName ?? 'Team Member',
-          creatorEmail: recipientEmail,
-          creatorName: widget.task.assignedByName.isNotEmpty
-              ? widget.task.assignedByName
-              : widget.task.creatorName,
-          projectTitle: state.activeProject!.title,
-          workspaceId: state.activeWorkspace!.id,
-          projectId: state.activeProject!.id,
-        );
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              recipientEmail.isNotEmpty
-                  ? 'Status updated to ${_columns[newStatus]} & assignor notified!'
-                  : 'Status updated to ${_columns[newStatus]}!',
-            ),
-            backgroundColor: PulseTheme.primary,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Update failed: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
+  Color _getPriorityColor(String p) {
+    switch (p.toLowerCase()) {
+      case 'urgent':
+        return PulseTheme.priorityUrgent;
+      case 'high':
+        return PulseTheme.priorityHigh;
+      case 'medium':
+        return PulseTheme.priorityMedium;
+      case 'low':
+      default:
+        return PulseTheme.priorityLow;
     }
   }
 
-  Future<void> _deleteTask() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Task'),
-        content: const Text('Are you sure you want to delete this task? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-    if (!mounted) return;
-    final state = Provider.of<AppState>(context, listen: false);
-    if (state.activeWorkspace == null || state.activeProject == null) return;
-
-    await _dbService.deleteTask(
-      state.activeWorkspace!.id,
-      state.activeProject!.id,
-      widget.task.id,
-    );
-
-    if (mounted) Navigator.pop(context);
+  Color _getStatusColor(String colId) {
+    switch (colId) {
+      case 'col-completed':
+        return PulseTheme.colCompleted;
+      case 'col-progress':
+        return PulseTheme.colProgress;
+      case 'col-review':
+        return PulseTheme.colReview;
+      case 'col-todo':
+      default:
+        return PulseTheme.colTodo;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final statusName = _columns[task.columnId] ?? 'To Do';
+    final statusColor = _getStatusColor(task.columnId);
+    final priorityColor = _getPriorityColor(task.priority);
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: const BoxDecoration(
@@ -152,48 +70,37 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                   color: PulseTheme.textPrimary,
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 22),
-                onPressed: _deleteTask,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  statusName,
+                  style: GoogleFonts.outfit(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           Text(
-            widget.task.content,
+            task.content,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: PulseTheme.textPrimary,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
 
-          // Status Dropdown
-          Text(
-            'Current Status',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: PulseTheme.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<String>(
-            initialValue: _currentStatus,
-            decoration: const InputDecoration(),
-            items: _columns.entries.map((e) {
-              return DropdownMenuItem(
-                value: e.key,
-                child: Text(e.value),
-              );
-            }).toList(),
-            onChanged: _isUpdating ? null : (v) => v != null ? _updateStatus(v) : null,
-          ),
-          const SizedBox(height: 16),
-
-          // Priority & Due Date
+          // Priority & Due Date Cards
           Row(
             children: [
               Expanded(
@@ -202,6 +109,7 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                   decoration: BoxDecoration(
                     color: PulseTheme.background,
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: PulseTheme.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,14 +121,27 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                           color: PulseTheme.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.task.priority.toUpperCase(),
-                        style: GoogleFonts.outfit(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: PulseTheme.primary,
-                        ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: priorityColor,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            task.priority.toUpperCase(),
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: priorityColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -233,6 +154,7 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                   decoration: BoxDecoration(
                     color: PulseTheme.background,
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: PulseTheme.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,14 +166,20 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                           color: PulseTheme.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.task.dueDate.isNotEmpty ? widget.task.dueDate : 'None',
-                        style: GoogleFonts.outfit(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: PulseTheme.primary,
-                        ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today, size: 12, color: PulseTheme.textSecondary),
+                          const SizedBox(width: 6),
+                          Text(
+                            task.dueDate.isNotEmpty ? task.dueDate : 'None',
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: PulseTheme.textPrimary,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -261,52 +189,95 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
           ),
           const SizedBox(height: 16),
 
-          // People details
-          if (widget.task.assigneeName.isNotEmpty) ...[
+          // People Details (Assigned By & Assigned To)
+          if (task.assigneeName.isNotEmpty) ...[
             Text(
               'Assigned To',
               style: GoogleFonts.plusJakartaSans(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
                 color: PulseTheme.textSecondary,
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              '${widget.task.assigneeName} (${widget.task.assigneeEmail})',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: PulseTheme.textPrimary,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: PulseTheme.background,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundColor: PulseTheme.primary,
+                    child: Text(
+                      task.assigneeName.isNotEmpty ? task.assigneeName[0].toUpperCase() : 'U',
+                      style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: PulseTheme.accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${task.assigneeName} ${task.assigneeEmail.isNotEmpty ? "(${task.assigneeEmail})" : ""}',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: PulseTheme.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
           ],
 
-          if (widget.task.assignedByName.isNotEmpty) ...[
+          if (task.assignedByName.isNotEmpty || task.creatorName.isNotEmpty) ...[
             Text(
               'Assigned By',
               style: GoogleFonts.plusJakartaSans(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
                 color: PulseTheme.textSecondary,
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              '${widget.task.assignedByName} (${widget.task.assignedByEmail})',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: PulseTheme.textPrimary,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: PulseTheme.background,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_pin_outlined, size: 18, color: PulseTheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      task.assignedByName.isNotEmpty
+                          ? '${task.assignedByName} ${task.assignedByEmail.isNotEmpty ? "(${task.assignedByEmail})" : ""}'
+                          : '${task.creatorName} ${task.creatorEmail.isNotEmpty ? "(${task.creatorEmail})" : ""}',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: PulseTheme.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
           ],
 
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Done'),
+            child: const Text('Close'),
           ),
         ],
       ),

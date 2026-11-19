@@ -68,6 +68,13 @@ class Workspace {
       members: data['members'] is Map ? Map<String, dynamic>.from(data['members']) : {},
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is Workspace && other.id == id);
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 class Project {
@@ -76,6 +83,9 @@ class Project {
   final String title;
   final String description;
   final Map<String, dynamic> members;
+  final Map<dynamic, dynamic>? rawTasks;
+  final Map<dynamic, dynamic>? rawChecklist;
+  final Map<dynamic, dynamic>? rawActivity;
 
   Project({
     required this.id,
@@ -83,6 +93,9 @@ class Project {
     required this.title,
     this.description = '',
     this.members = const {},
+    this.rawTasks,
+    this.rawChecklist,
+    this.rawActivity,
   });
 
   factory Project.fromMap(String id, String wsId, Map<dynamic, dynamic>? data) {
@@ -93,8 +106,18 @@ class Project {
       title: data['title']?.toString() ?? 'Project',
       description: data['description']?.toString() ?? '',
       members: data['members'] is Map ? Map<String, dynamic>.from(data['members']) : {},
+      rawTasks: data['tasks'] is Map ? data['tasks'] as Map : null,
+      rawChecklist: data['checklist'] is Map ? data['checklist'] as Map : null,
+      rawActivity: data['activity'] is Map ? data['activity'] as Map : null,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is Project && other.id == id);
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 class TaskItem {
@@ -241,5 +264,72 @@ class ProjectMember {
       role: data['role']?.toString() ?? 'Member',
       avatar: data['avatar']?.toString() ?? '',
     );
+  }
+}
+
+class ChecklistItem {
+  final String id;
+  final String text;
+  final bool completed;
+  final int order;
+  final String createdAt;
+  final String taskId;
+  final String taskTitle;
+  final String assigneeId;
+  final String assigneeName;
+  final String assigneeEmail;
+  final bool isCommon;
+
+  ChecklistItem({
+    required this.id,
+    required this.text,
+    this.completed = false,
+    this.order = 0,
+    this.createdAt = '',
+    this.taskId = '',
+    this.taskTitle = '',
+    this.assigneeId = '',
+    this.assigneeName = '',
+    this.assigneeEmail = '',
+    this.isCommon = true,
+  });
+
+  factory ChecklistItem.fromMap(String id, Map<dynamic, dynamic>? data) {
+    if (data == null) return ChecklistItem(id: id, text: '');
+    final taskId = data['taskId']?.toString() ?? '';
+    final assigneeId = data['assigneeId']?.toString() ?? '';
+    final isCommonVal = data['isCommon'];
+    final bool isCommon = isCommonVal != null
+        ? (isCommonVal == true || isCommonVal.toString() == 'true')
+        : (taskId.isEmpty && assigneeId.isEmpty);
+
+    return ChecklistItem(
+      id: id,
+      text: data['text']?.toString() ?? '',
+      completed: data['completed'] == true || data['completed']?.toString() == 'true',
+      order: int.tryParse(data['order']?.toString() ?? '0') ?? 0,
+      createdAt: data['createdAt']?.toString() ?? '',
+      taskId: taskId,
+      taskTitle: data['taskTitle']?.toString() ?? '',
+      assigneeId: assigneeId,
+      assigneeName: data['assigneeName']?.toString() ?? '',
+      assigneeEmail: data['assigneeEmail']?.toString() ?? '',
+      isCommon: isCommon,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'text': text,
+      'completed': completed,
+      'order': order,
+      'createdAt': createdAt.isNotEmpty ? createdAt : DateTime.now().toIso8601String(),
+      'taskId': taskId,
+      'taskTitle': taskTitle,
+      'assigneeId': assigneeId,
+      'assigneeName': assigneeName,
+      'assigneeEmail': assigneeEmail,
+      'isCommon': isCommon,
+    };
   }
 }

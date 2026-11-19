@@ -69,6 +69,29 @@ class DatabaseService {
     });
   }
 
+  // Stream checklist for a specific project
+  Stream<List<ChecklistItem>> streamChecklist(String workspaceId, String projectId) {
+    return _db.ref('workspaces/$workspaceId/projects/$projectId/checklist').onValue.map((event) {
+      final List<ChecklistItem> list = [];
+      if (!event.snapshot.exists || event.snapshot.value == null) {
+        return list;
+      }
+
+      final data = event.snapshot.value;
+      if (data is Map) {
+        data.forEach((key, val) {
+          if (val is Map) {
+            list.add(ChecklistItem.fromMap(key.toString(), val));
+          }
+        });
+      }
+
+      // Sort by order ascending
+      list.sort((a, b) => a.order.compareTo(b.order));
+      return list;
+    });
+  }
+
   // Add Task
   Future<String?> addTask(String workspaceId, String projectId, TaskItem task) async {
     final ref = _db.ref('workspaces/$workspaceId/projects/$projectId/tasks').push();

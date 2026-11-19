@@ -2,158 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../constants/theme.dart';
-import '../../models/models.dart';
 import '../../providers/app_state.dart';
-import '../../services/api_service.dart';
-import '../../services/database_service.dart';
 
-class ActivityScreen extends StatefulWidget {
+class ActivityScreen extends StatelessWidget {
   const ActivityScreen({super.key});
-
-  @override
-  State<ActivityScreen> createState() => _ActivityScreenState();
-}
-
-class _ActivityScreenState extends State<ActivityScreen> {
-  final DatabaseService _dbService = DatabaseService();
-
-  void _showPostAnnouncementDialog() {
-    final textController = TextEditingController();
-    bool isPosting = false;
-
-    showDialog(
-      context: context,
-      builder: (dialogCtx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: PulseTheme.surface,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Row(
-                children: [
-                  const Icon(Icons.campaign, color: PulseTheme.primary, size: 24),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Post Announcement',
-                    style: GoogleFonts.outfit(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: PulseTheme.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'This announcement will be posted to the team feed and automatically emailed to all members.',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      color: PulseTheme.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: textController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: 'Share a status update, deadline, or Google Meet link...',
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isPosting ? null : () => Navigator.pop(dialogCtx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isPosting
-                      ? null
-                      : () async {
-                          final text = textController.text.trim();
-                          if (text.isEmpty) return;
-
-                          final state = Provider.of<AppState>(context, listen: false);
-                          if (state.activeWorkspace == null) return;
-
-                          final messenger = ScaffoldMessenger.of(context);
-                          setDialogState(() => isPosting = true);
-
-                          final authorName = state.currentUser?.displayName ?? 'Team Lead';
-                          final projTitle = state.activeProject?.title ?? '';
-                          final wsName = state.activeWorkspace?.name ?? 'Workspace';
-
-                          // 1. Post to RTDB
-                          await _dbService.postAnnouncement(
-                            state.activeWorkspace!.id,
-                            ActivityItem(
-                              id: '',
-                              user: authorName,
-                              action: 'posted an announcement',
-                              target: projTitle.isNotEmpty ? 'in $projTitle' : 'to the Workspace',
-                              content: text,
-                              type: 'announcement',
-                              workspaceId: state.activeWorkspace!.id,
-                              projectId: state.activeProject?.id,
-                              timestamp: DateTime.now().toIso8601String(),
-                            ),
-                          );
-
-                          // 2. Collect emails & notify
-                          final recipientEmails = state.members
-                              .map((m) => m.email.trim())
-                              .where((e) => e.isNotEmpty && e.contains('@'))
-                              .toList();
-
-                          if (recipientEmails.isNotEmpty) {
-                            ApiService.sendAnnouncementNotification(
-                              announcement: text,
-                              authorName: authorName,
-                              projectTitle: projTitle,
-                              workspaceName: wsName,
-                              recipients: recipientEmails,
-                              workspaceId: state.activeWorkspace!.id,
-                              projectId: state.activeProject?.id,
-                            );
-                          }
-
-                          if (dialogCtx.mounted) {
-                            Navigator.pop(dialogCtx);
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  recipientEmails.isNotEmpty
-                                      ? '📢 Announcement posted & emailed to ${recipientEmails.length} team members!'
-                                      : '📢 Announcement posted to workspace feed!',
-                                ),
-                                backgroundColor: PulseTheme.primary,
-                              ),
-                            );
-                          }
-                        },
-                  child: isPosting
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: PulseTheme.accent),
-                        )
-                      : const Text('Post & Email Team'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     final activities = state.activities;
+    final activeProj = state.activeProject;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -176,7 +34,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Post an update or meeting link to notify your team',
+                      'Team updates and announcements from the workspace will appear here.',
+                      textAlign: TextAlign.center,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
                         color: PulseTheme.textSecondary,
@@ -187,7 +46,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 80),
+              padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 20),
               itemCount: activities.length,
               itemBuilder: (context, index) {
                 final act = activities[index];
@@ -262,32 +121,57 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         ),
                       ],
                       const SizedBox(height: 8),
-                      Text(
-                        DateTime.tryParse(act.timestamp) != null
-                            ? DateTime.parse(act.timestamp).toLocal().toString().substring(0, 16)
-                            : act.timestamp,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 10,
-                          color: PulseTheme.textMuted,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            DateTime.tryParse(act.timestamp) != null
+                                ? DateTime.parse(act.timestamp).toLocal().toString().substring(0, 16)
+                                : act.timestamp,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 10,
+                              color: PulseTheme.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (activeProj != null) ...[
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: PulseTheme.primary.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 5,
+                                    height: 5,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF10B981),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    activeProj.title,
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: PulseTheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: PulseTheme.primary,
-        foregroundColor: PulseTheme.accent,
-        elevation: 2,
-        onPressed: _showPostAnnouncementDialog,
-        icon: const Icon(Icons.campaign),
-        label: Text(
-          'Post Update',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-        ),
-      ),
     );
   }
 }

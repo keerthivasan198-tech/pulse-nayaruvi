@@ -27,3 +27,6 @@ dist-ssr
 *serviceAccountKey*.json
 replace_theme.cjs
 
+# Binaries
+*.apk
+

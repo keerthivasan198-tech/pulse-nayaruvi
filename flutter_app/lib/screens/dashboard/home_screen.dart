@@ -5,8 +5,8 @@ import '../../constants/theme.dart';
 import '../../models/models.dart';
 import '../../providers/app_state.dart';
 import '../tasks/tasks_screen.dart';
+import '../checklist/checklist_screen.dart';
 import '../activity/activity_screen.dart';
-import '../team/team_screen.dart';
 import '../profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,8 +21,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<Widget> _pages = const [
     TasksScreen(),
+    ChecklistScreen(),
     ActivityScreen(),
-    TeamScreen(),
     ProfileScreen(),
   ];
 
@@ -56,44 +56,57 @@ class _HomeScreenState extends State<HomeScreen> {
                       'Nayaruvi Pulse',
                       style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold),
                     )
-                  : DropdownButtonHideUnderline(
-                      child: DropdownButton<Workspace>(
-                        value: activeWs,
-                        isExpanded: true,
-                        icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: PulseTheme.primary),
-                        selectedItemBuilder: (ctx) {
-                          return workspaces.map((ws) {
-                            return Align(
-                              alignment: Alignment.centerLeft,
+                  : Builder(builder: (context) {
+                      final uniqueWorkspaces = <String, Workspace>{};
+                      for (final ws in workspaces) {
+                        uniqueWorkspaces[ws.id] = ws;
+                      }
+                      final wsList = uniqueWorkspaces.values.toList();
+                      final currentId = activeWs != null && uniqueWorkspaces.containsKey(activeWs.id)
+                          ? activeWs.id
+                          : (wsList.isNotEmpty ? wsList.first.id : null);
+
+                      return DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: currentId,
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: PulseTheme.primary),
+                          selectedItemBuilder: (ctx) {
+                            return wsList.map((ws) {
+                              return Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  ws.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: PulseTheme.textPrimary,
+                                  ),
+                                ),
+                              );
+                            }).toList();
+                          },
+                          items: wsList.map((ws) {
+                            return DropdownMenuItem<String>(
+                              value: ws.id,
                               child: Text(
                                 ws.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: PulseTheme.textPrimary,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: ws.id == currentId ? FontWeight.bold : FontWeight.normal,
                                 ),
                               ),
                             );
-                          }).toList();
-                        },
-                        items: workspaces.map((ws) {
-                          return DropdownMenuItem(
-                            value: ws,
-                            child: Text(
-                              ws.name,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: ws.id == activeWs?.id ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          if (val != null) state.setActiveWorkspace(val);
-                        },
-                      ),
-                    ),
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null && uniqueWorkspaces.containsKey(val)) {
+                              state.setActiveWorkspace(uniqueWorkspaces[val]!);
+                            }
+                          },
+                        ),
+                      );
+                    }),
             ),
           ],
         ),
@@ -113,6 +126,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemBuilder: (ctx, idx) {
                       final p = projects[idx];
                       final isSelected = p.id == activeProj?.id;
+                      final hasInfo = state.projectHasInformation(p);
+                      final assignedCount = state.projectAssignedTaskCount(p);
 
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
@@ -128,13 +143,61 @@ class _HomeScreenState extends State<HomeScreen> {
                                 color: isSelected ? PulseTheme.primary : PulseTheme.border,
                               ),
                             ),
-                            child: Text(
-                              p.title,
-                              style: GoogleFonts.outfit(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? PulseTheme.accent : PulseTheme.textPrimary,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (hasInfo) ...[
+                                  Container(
+                                    width: 7,
+                                    height: 7,
+                                    margin: const EdgeInsets.only(right: 6),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? PulseTheme.accent
+                                          : const Color(0xFF10B981),
+                                      shape: BoxShape.circle,
+                                       boxShadow: [
+                                        BoxShadow(
+                                          color: (isSelected
+                                                  ? PulseTheme.accent
+                                                  : const Color(0xFF10B981))
+                                              .withValues(alpha: 0.6),
+                                          blurRadius: 4,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                Text(
+                                  p.title,
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSelected ? PulseTheme.accent : PulseTheme.textPrimary,
+                                  ),
+                                ),
+                                if (assignedCount > 0) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? PulseTheme.accent.withValues(alpha: 0.25)
+                                          : PulseTheme.primary.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '$assignedCount',
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: isSelected ? PulseTheme.accent : PulseTheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ),
@@ -164,17 +227,17 @@ class _HomeScreenState extends State<HomeScreen> {
             BottomNavigationBarItem(
               icon: Icon(Icons.assignment_outlined),
               activeIcon: Icon(Icons.assignment),
-              label: 'Tasks',
+              label: 'My Tasks',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.checklist_rtl_outlined),
+              activeIcon: Icon(Icons.checklist_rtl_rounded),
+              label: 'Checklist',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.campaign_outlined),
               activeIcon: Icon(Icons.campaign),
-              label: 'Feed',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.group_outlined),
-              activeIcon: Icon(Icons.group),
-              label: 'Team',
+              label: 'Announce',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),

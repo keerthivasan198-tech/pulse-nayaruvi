@@ -30,6 +30,36 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final user = await _authService.signInWithGoogle();
+      if (user == null) {
+        // Sign in cancelled
+        return;
+      }
+    } catch (e) {
+      final errStr = e.toString();
+      setState(() {
+        if (errStr.contains('10') || errStr.contains('sign_in_failed')) {
+          _errorMessage = 'Google Sign-In requires SHA-1 fingerprint registered in Firebase Console. Please sign in below using your Email & Password.';
+        } else {
+          _errorMessage = e.toString().replaceAll(RegExp(r'\[.*?\]'), '').trim();
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -158,6 +188,73 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // Google Sign-In Button
+                          OutlinedButton(
+                            onPressed: _isLoading ? null : _signInWithGoogle,
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: PulseTheme.textPrimary,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              side: const BorderSide(color: PulseTheme.border),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'G',
+                                    style: GoogleFonts.outfit(
+                                      color: const Color(0xFF4285F4),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Continue with Google',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: PulseTheme.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+
+                          // Divider
+                          Row(
+                            children: [
+                              const Expanded(child: Divider(color: PulseTheme.border)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  'OR',
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: PulseTheme.textMuted,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                              const Expanded(child: Divider(color: PulseTheme.border)),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+
                           // Tab Toggle (Login vs Register)
                           Container(
                             padding: const EdgeInsets.all(4),
