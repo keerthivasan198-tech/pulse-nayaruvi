@@ -214,8 +214,8 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
       if (taskInput.assigneeId) {
         await createInAppNotification(taskInput.assigneeId, {
           type: 'task_assigned',
-          title: 'New Task Assigned',
-          message: `${creatorName} assigned you: "${content}" in ${projectTitle}`,
+          title: 'Task Assigned: Get Back to Work!',
+          message: `${creatorName} assigned you: "${content}" in ${projectTitle}. This task is assigned to you, get back to work!`,
           taskContent: content,
           assignedByName: creatorName,
           projectTitle,

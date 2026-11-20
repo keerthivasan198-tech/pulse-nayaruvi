@@ -116,8 +116,8 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           AppNotification(
             id: '',
             type: 'task_assigned',
-            title: 'New Task Assigned',
-            message: '$currentName assigned you: "${task.content}" in ${state.activeProject!.title}',
+            title: 'Task Assigned: Get Back to Work!',
+            message: '$currentName assigned you: "${task.content}" in ${state.activeProject!.title}. This task is assigned to you, get back to work!',
             taskContent: task.content,
             assignedByName: currentName,
             projectTitle: state.activeProject!.title,

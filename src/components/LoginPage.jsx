@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  updateProfile,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence
+} from 'firebase/auth';
 import { Mail, Lock, LogIn, CheckCircle2, ChevronRight, Activity, AlertCircle, User, UserPlus } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
@@ -11,6 +20,7 @@ export default function LoginPage({ inviteInfo }) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [isSignUp, setIsSignUp] = useState(searchParams.get('signup') === 'true');
   const navigate = useNavigate();
 
@@ -87,6 +97,12 @@ export default function LoginPage({ inviteInfo }) {
     setError('');
     setLoading(true);
     try {
+      try {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      } catch (persistErr) {
+        console.warn("Could not set auth persistence:", persistErr);
+      }
+
       if (isSignUp) {
         if (!name.trim()) throw new Error("Name is required");
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -105,6 +121,12 @@ export default function LoginPage({ inviteInfo }) {
   const handleGoogleLogin = async () => {
     setError('');
     try {
+      try {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      } catch (persistErr) {
+        console.warn("Could not set auth persistence:", persistErr);
+      }
+
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       handleRedirect();
@@ -237,8 +259,13 @@ export default function LoginPage({ inviteInfo }) {
             </div>
 
             <div className="flex items-center justify-between mt-2 mb-6">
-              <label className="flex items-center cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 rounded border-[var(--color-border)] text-primary focus:ring-primary/20 accent-primary" />
+              <label className="flex items-center cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-[var(--color-border)] text-primary focus:ring-primary/20 accent-primary cursor-pointer" 
+                />
                 <span className="ml-2 text-sm font-medium text-text-secondary">Remember me</span>
               </label>
               {!isSignUp && (

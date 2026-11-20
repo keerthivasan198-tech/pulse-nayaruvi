@@ -113,8 +113,8 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
         // Direct in-app message
         await createInAppNotification(formData.assigneeId, {
           type: 'task_assigned',
-          title: 'New Task Assigned',
-          message: `${currentUserName} assigned you: "${formData.content || task.content}" in ${projName}`,
+          title: 'Task Assigned: Get Back to Work!',
+          message: `${currentUserName} assigned you: "${formData.content || task.content}" in ${projName}. This task is assigned to you, get back to work!`,
           taskContent: formData.content || task.content,
           assignedByName: currentUserName,
           projectTitle: projName,

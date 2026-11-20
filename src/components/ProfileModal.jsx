@@ -208,9 +208,13 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
             </div>
             <button 
               type="button" 
-              onClick={() => {
-                signOut(auth);
-                onClose();
+              onClick={async () => {
+                try {
+                  await signOut(auth);
+                  onClose();
+                } catch (err) {
+                  console.error("Sign out error:", err);
+                }
               }}
               className="w-full py-2.5 rounded-xl text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
             >

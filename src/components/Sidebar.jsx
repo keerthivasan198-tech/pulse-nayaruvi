@@ -2,8 +2,10 @@ import React from 'react';
 import { 
   Home, Folder, CheckSquare, Calendar, 
   Users, Activity, BarChart2, Settings,
-  Crown, ChevronDown, CheckCircle2, MessageSquare, ListTodo
+  Crown, ChevronDown, CheckCircle2, MessageSquare, ListTodo, LogOut
 } from 'lucide-react';
+import { auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 import WorkspaceSelector from './WorkspaceSelector';
 import ProjectSelector from './ProjectSelector';
 
@@ -74,7 +76,24 @@ export default function Sidebar({
               )}
             </div>
           </div>
-          <ChevronDown size={14} className="text-background/75 group-hover:text-white" />
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await signOut(auth);
+                } catch (err) {
+                  console.error("Sign out error:", err);
+                }
+              }}
+              className="p-1.5 rounded-lg text-background/60 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut size={15} />
+            </button>
+            <ChevronDown size={14} className="text-background/75 group-hover:text-white" />
+          </div>
         </div>
       </div>
     </aside>

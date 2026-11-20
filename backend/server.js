@@ -279,8 +279,8 @@ app.post('/api/notify/task-assigned', async (req, res) => {
       try {
         await db.ref(`notifications/${assigneeId}`).push({
           type: 'task_assigned',
-          title: 'New Task Assigned',
-          message: `${assignedByName} assigned you: "${taskContent}" in ${projectTitle}`,
+          title: 'Task Assigned: Get Back to Work!',
+          message: `${assignedByName} assigned you: "${taskContent}" in ${projectTitle}. This task is assigned to you, get back to work!`,
           taskContent,
           assignedByName,
           projectTitle,
@@ -304,8 +304,8 @@ app.post('/api/notify/task-assigned', async (req, res) => {
           await getMessaging().send({
             token: fcmToken,
             notification: {
-              title: `📌 New Task Assigned: "${taskContent}"`,
-              body: `${assignedByName} assigned you a task in "${projectTitle}"`
+              title: '📌 Task Assigned: Get Back to Work!',
+              body: `${assignedByName} assigned you: "${taskContent}" in "${projectTitle}". This task is assigned to you, get back to work!`
             },
             data: {
               taskContent,
@@ -344,7 +344,7 @@ app.post('/api/notify/task-assigned', async (req, res) => {
     const mailOptions = {
       from: `"Nayaruvi Pulse" <${process.env.SMTP_USER || 'nayaruvi.official@gmail.com'}>`,
       to: assigneeEmail.trim(),
-      subject: `New Task Assigned: "${taskContent}" (${projectTitle})`,
+      subject: `⚡ Task Assigned: "${taskContent}" — Get Back to Work!`,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 28px; color: #274245; background-color: #FAF7EC; max-width: 600px; margin: 0 auto; border-radius: 12px; border: 1px solid #DFD6AE;">
           <div style="border-bottom: 2px solid #274245; padding-bottom: 12px; margin-bottom: 20px;">
@@ -352,9 +352,13 @@ app.post('/api/notify/task-assigned', async (req, res) => {
             <p style="margin: 4px 0 0 0; font-size: 12px; color: #5C6E6F;">Task Assignment Notification</p>
           </div>
 
+          <div style="background-color: #274245; color: #DFD6AE; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; font-size: 15px; text-align: center;">
+            🚀 This task is assigned to you — time to get back to work!
+          </div>
+
           <p style="font-size: 15px; margin-bottom: 12px;">Hello <strong>${assigneeName || assigneeEmail.split('@')[0]}</strong>,</p>
           <p style="font-size: 14px; line-height: 1.5; margin-bottom: 18px;">
-            <strong>${assignedByName}</strong> has assigned a new task to you in <strong>"${projectTitle}"</strong>:
+            <strong>${assignedByName}</strong> has assigned a task to you in <strong>"${projectTitle}"</strong>:
           </p>
 
           <div style="background-color: #ffffff; border: 1px solid #DDD5CC; border-radius: 8px; padding: 18px; margin: 20px 0;">
