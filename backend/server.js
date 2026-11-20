@@ -49,6 +49,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+app.get('/', (req, res) => res.json({ status: 'Nayaruvi Pulse Backend Running' }));
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
 // Log all requests for debugging
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, req.body);
