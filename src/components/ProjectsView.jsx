@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, MoreVertical, Link, Plus, CheckCircle2, Shield, User, Trash2 } from 'lucide-react';
+import { FolderOpen, MoreVertical, Link, Plus, CheckCircle2, Shield, User, Trash2, Lock } from 'lucide-react';
 import { auth } from '../firebase';
 import { 
   createProject, 
   subscribeToProjects, 
+  subscribeToWorkspace,
+  isWorkspaceOwner,
   deleteProject, 
   updateProjectMemberRole 
 } from '../services/firebaseService';
 
 export default function ProjectsView({ activeWorkspaceId, activeProjectId, setActiveProjectId, setActiveTab }) {
+  const [workspace, setWorkspace] = useState(null);
   const [projects, setProjects] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [copySuccessId, setCopySuccessId] = useState(null);
   const [managingProject, setManagingProject] = useState(null);
   const [newProject, setNewProject] = useState({ title: '', status: 'Active' });
   const [isCreating, setIsCreating] = useState(false);
+
+  // Subscribe to current workspace to verify ownership & permissions
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setWorkspace(null);
+      return;
+    }
+    const unsubWs = subscribeToWorkspace(activeWorkspaceId, (ws) => {
+      setWorkspace(ws);
+    });
+    return () => unsubWs();
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     if (!activeWorkspaceId || !auth.currentUser) {
@@ -28,6 +43,8 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
 
     return () => unSub();
   }, [activeWorkspaceId]);
+
+  const isOwner = auth.currentUser && workspace ? isWorkspaceOwner(workspace, auth.currentUser.uid) : false;
 
   const handleDeleteProject = async (projectId) => {
     if (!window.confirm("Are you sure you want to permanently delete this project? This action cannot be undone.")) return;
@@ -45,6 +62,10 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
+    if (!isOwner) {
+      alert("Permission Denied: Only the Workspace Owner can create projects in this workspace.");
+      return;
+    }
     const trimmedTitle = newProject.title.trim();
     if (!trimmedTitle) {
       alert("Please enter a project title.");
@@ -106,20 +127,40 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
     <div className="flex h-full w-full flex-col p-4 md:p-8 bg-background overflow-y-auto custom-scrollbar">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 mb-8">
         <div>
-          <h2 className="text-3xl font-bold text-primary tracking-tight mb-2 uppercase">
-            PROJECTS
-          </h2>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-3xl font-bold text-primary tracking-tight uppercase">
+              PROJECTS
+            </h2>
+            {workspace && (
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                isOwner 
+                  ? 'bg-amber-500/15 text-amber-800 border-amber-500/30' 
+                  : 'bg-primary/10 text-primary border-primary/20'
+              }`}>
+                {isOwner ? 'Workspace Owner' : 'Invited Member'}
+              </span>
+            )}
+          </div>
           <p className="text-sm font-medium text-text-secondary">
-            Manage your project workspace, team members, and permissions.
+            {isOwner 
+              ? 'As Workspace Owner, you can create and govern projects and assign members.' 
+              : 'Collaborate on projects you are invited to. Only the Workspace Owner can create new projects.'}
           </p>
         </div>
-        <button 
-          onClick={() => setIsCreating(true)}
-          className="flex items-center px-5 py-2.5 bg-primary text-background rounded-xl font-bold text-sm transition-all cursor-pointer hover:bg-primary-hover"
-        >
-          <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
-          New Project
-        </button>
+        {isOwner ? (
+          <button 
+            onClick={() => setIsCreating(true)}
+            className="flex items-center px-5 py-2.5 bg-primary text-background rounded-xl font-bold text-sm transition-all cursor-pointer hover:bg-primary-hover shadow-sm"
+          >
+            <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
+            New Project
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface border border-border text-text-secondary text-xs font-semibold shadow-xs">
+            <Shield size={14} className="text-amber-600 shrink-0" />
+            <span>Project creation reserved for Workspace Owner</span>
+          </div>
+        )}
       </div>
 
       <div className="celestique-card rounded-2xl overflow-visible max-w-4xl text-primary">
@@ -129,7 +170,19 @@ export default function ProjectsView({ activeWorkspaceId, activeProjectId, setAc
               <FolderOpen size={24} className="text-[#2B2420]" />
             </div>
             <h4 className="text-[#2B2420] font-bold text-sm mb-1 font-heading">No Projects Found</h4>
-            <p className="font-medium text-xs max-w-xs mx-auto text-[#7D7268]">Create a new project to start collaborating with your team.</p>
+            <p className="font-medium text-xs max-w-md mx-auto text-[#7D7268] mb-4">
+              {isOwner 
+                ? 'Create a new project to start collaborating with your team members in this workspace.' 
+                : 'No projects have been created in this workspace yet. You will be able to collaborate as soon as the Workspace Owner creates a project.'}
+            </p>
+            {isOwner && (
+              <button 
+                onClick={() => setIsCreating(true)}
+                className="inline-flex items-center px-4 py-2 bg-primary text-background rounded-xl font-bold text-xs hover:bg-primary-hover transition-colors shadow-xs"
+              >
+                <Plus size={14} className="mr-1.5" /> Create First Project
+              </button>
+            )}
           </div>
         ) : (
           projects

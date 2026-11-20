@@ -1,5 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, UserPlus, FolderOpen, Settings as SettingsIcon, Plus, Check } from 'lucide-react';
+import { 
+  Shield, 
+  UserPlus, 
+  FolderOpen, 
+  Settings as SettingsIcon, 
+  Plus, 
+  Check, 
+  Mail, 
+  Send, 
+  Copy, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2 
+} from 'lucide-react';
 import { auth } from '../firebase';
 import { 
   getWorkspace, 
@@ -9,7 +22,9 @@ import {
   inviteProjectMember
 } from '../services/firebaseService';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost')
+  ? '/api'
+  : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
 export default function SettingsView({ activeWorkspaceId }) {
   const [workspace, setWorkspace] = useState(null);
@@ -22,6 +37,8 @@ export default function SettingsView({ activeWorkspaceId }) {
   const [newMemberRole, setNewMemberRole] = useState('Member');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null);
 
   const fetchData = async () => {
     if (!activeWorkspaceId) return;
@@ -33,19 +50,25 @@ export default function SettingsView({ activeWorkspaceId }) {
       }
 
       if (auth.currentUser) {
-        const list = await getProjects(activeWorkspaceId, auth.currentUser.uid);
+        // Fetch all projects in this workspace so the admin can invite to any project
+        const list = await getProjects(activeWorkspaceId);
         setProjects(list);
-        if (list.length > 0 && !selectedProjectId) {
-          setSelectedProjectId(list[0].id);
+        if (list.length > 0) {
+          setSelectedProjectId(prev => prev && list.some(p => p.id === prev) ? prev : list[0].id);
         }
       }
     } catch (err) {
-      console.error(err);
+      console.error("fetchData error:", err);
     }
   };
 
-  const currentUserRole = members.find(m => m.uid === auth.currentUser?.uid)?.role || 'Member';
-  const isPrivileged = currentUserRole === 'Founder' || currentUserRole === 'Co-Founder' || currentUserRole === 'Admin';
+  const isWsOwner = workspace ? (
+    workspace.ownerId === auth.currentUser?.uid || 
+    workspace.createdBy === auth.currentUser?.uid || 
+    members.some(m => m.uid === auth.currentUser?.uid && (m.role === 'Owner' || m.role === 'Founder'))
+  ) : false;
+  const currentUserRole = isWsOwner ? 'Owner' : (members.find(m => m.uid === auth.currentUser?.uid)?.role || 'Member');
+  const isPrivileged = isWsOwner || currentUserRole === 'Founder' || currentUserRole === 'Co-Founder' || currentUserRole === 'Admin';
 
   useEffect(() => {
     fetchData();
@@ -84,51 +107,98 @@ export default function SettingsView({ activeWorkspaceId }) {
       return;
     }
 
-    const inviteLink = `${window.location.origin}/invite/${selectedProjectId}?workspaceId=${activeWorkspaceId}`;
+    setIsInviting(true);
+    setInviteResult(null);
+
+    const email = newMemberEmail.trim();
+    const memberName = newMemberName.trim() || email.split('@')[0];
+    const inviterName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Admin';
+    const selectedProject = projects.find(p => p.id === selectedProjectId);
+    const projectTitle = selectedProject?.title || 'Project';
 
     try {
-      const memberName = newMemberName.trim() || newMemberEmail.split('@')[0];
-      const inviterName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Admin';
-
       // 1. Store invite record directly in database under the project branch
-      await inviteProjectMember(activeWorkspaceId, selectedProjectId, {
-        email: newMemberEmail.trim(),
+      const inviteRecord = await inviteProjectMember(activeWorkspaceId, selectedProjectId, {
+        email,
         name: memberName,
         role: newMemberRole,
         invitedBy: inviterName
       });
 
-      // 2. Try sending email via backend if available
-      if (API_URL && !API_URL.includes('localhost')) {
+      const inviteId = inviteRecord?.id || inviteRecord?._id || '';
+      const inviteLink = `${window.location.origin}/invite/${selectedProjectId}?workspaceId=${activeWorkspaceId}${inviteId ? `&inviteId=${inviteId}` : ''}`;
+
+      // 2. Dispatch email via backend API (works on localhost or remote server)
+      let emailSent = false;
+      let emailError = '';
+
+      if (API_URL) {
         try {
-          await fetch(`${API_URL}/invite`, {
+          const resp = await fetch(`${API_URL}/invite`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              email: newMemberEmail.trim(),
+              email,
               name: memberName,
               role: newMemberRole,
               workspaceId: activeWorkspaceId,
-              projectId: selectedProjectId
+              projectId: selectedProjectId,
+              inviteId,
+              inviterName,
+              workspaceName: workspace?.name || 'Workspace',
+              projectTitle,
+              origin: window.location.origin
             })
           });
-        } catch (e) {
-          // Fallback silently if serverless
+
+          if (resp.ok) {
+            const data = await resp.json();
+            emailSent = !!data.emailSent;
+            if (!data.emailSent) {
+              emailError = data.emailError || data.warning || 'SMTP server credentials not configured';
+            }
+          } else {
+            const errData = await resp.json().catch(() => ({}));
+            emailError = errData.error || `Server returned error ${resp.status}`;
+          }
+        } catch (apiErr) {
+          console.warn("Backend invite API unreachable:", apiErr);
+          emailError = apiErr.message || 'Backend server unreachable';
         }
       }
 
       // 3. Copy invite link to clipboard for convenience
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(inviteLink);
+        try {
+          await navigator.clipboard.writeText(inviteLink);
+        } catch (_) {}
+      }
+
+      // 4. Update UI feedback
+      setInviteResult({
+        email,
+        name: memberName,
+        role: newMemberRole,
+        projectTitle,
+        inviteLink,
+        emailSent,
+        emailError
+      });
+
+      if (emailSent) {
+        showStatus(`🎉 Invitation email sent to ${email} as ${newMemberRole}! Link also copied.`);
+      } else {
+        showStatus(`✅ Invite stored in Firebase! Link copied to clipboard.`);
       }
 
       setNewMemberEmail('');
       setNewMemberName('');
-      showStatus(`Invite stored in DB! Link copied to clipboard:\n${inviteLink}`);
       fetchData();
     } catch (err) {
       console.error("Invite member error:", err);
-      alert(`Failed to create invite: ${err.message || ''}\n\nInvite link: ${inviteLink}`);
+      alert(`Failed to save invite: ${err.message || ''}`);
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -163,7 +233,14 @@ export default function SettingsView({ activeWorkspaceId }) {
         <div className="celestique-card rounded-2xl p-6 text-primary">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest block mb-1">Active Workspace</span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest block">Active Workspace</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  isWsOwner ? 'bg-amber-500/15 text-amber-800 border-amber-500/30' : 'bg-primary/10 text-primary border-primary/20'
+                }`}>
+                  {isWsOwner ? 'Owner' : 'Member'}
+                </span>
+              </div>
               <h3 className="text-2xl font-normal font-heading text-primary">{workspace?.name || 'My Workspace'}</h3>
             </div>
             <div className="flex items-center space-x-3">
@@ -224,11 +301,106 @@ export default function SettingsView({ activeWorkspaceId }) {
             </select>
             <button 
               type="submit"
-              className="btn-matte-primary py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center cursor-pointer font-heading"
+              disabled={isInviting}
+              className="btn-matte-primary py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center cursor-pointer font-heading disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Plus size={15} className="mr-1" /> Invite
+              {isInviting ? (
+                <>
+                  <Loader2 size={15} className="mr-1.5 animate-spin" /> Sending...
+                </>
+              ) : (
+                <>
+                  <Plus size={15} className="mr-1" /> Invite
+                </>
+              )}
             </button>
           </form>
+
+          {/* Detailed Invite Feedback & 1-Click Fallback Panel */}
+          {inviteResult && (
+            <div className={`mt-5 p-4 rounded-xl border text-xs animate-in fade-in transition-all ${
+              inviteResult.emailSent 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900' 
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-950'
+            }`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    {inviteResult.emailSent ? (
+                      <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                    )}
+                    <span>
+                      {inviteResult.emailSent
+                        ? `Invitation Email Dispatched to ${inviteResult.email}!`
+                        : `Invite Registered in Firebase for ${inviteResult.email}`}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-medium opacity-90">
+                    <span><strong>Project:</strong> {inviteResult.projectTitle}</span>
+                    <span><strong>Role:</strong> <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded font-bold">{inviteResult.role}</span></span>
+                    <span><strong>Invitee:</strong> {inviteResult.name}</span>
+                  </div>
+
+                  {!inviteResult.emailSent && (
+                    <div className="mt-2.5 space-y-2">
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Automatic backend email: <span className="italic font-medium">{inviteResult.emailError}</span>.
+                        <br />
+                        You can immediately send the invitation to their email inbox with 1 click below:
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <a
+                          href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(inviteResult.email)}&su=${encodeURIComponent(`Invitation to join ${inviteResult.projectTitle} on Nayaruvi Pulse (${inviteResult.role})`)}&body=${encodeURIComponent(
+                            `Hello ${inviteResult.name},\n\nYou have been invited to join the project "${inviteResult.projectTitle}" as a ${inviteResult.role} on Nayaruvi Pulse.\n\nClick the link below to accept your invitation, sign in, and start collaborating:\n${inviteResult.inviteLink}\n\nBest regards,\nNayaruvi Pulse Team`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] transition-colors shadow-sm"
+                        >
+                          <Mail size={13} /> Send with Gmail Web
+                        </a>
+                        <a
+                          href={`mailto:${encodeURIComponent(inviteResult.email)}?subject=${encodeURIComponent(`Invitation to join ${inviteResult.projectTitle} on Nayaruvi Pulse (${inviteResult.role})`)}&body=${encodeURIComponent(
+                            `Hello ${inviteResult.name},\n\nYou have been invited to join "${inviteResult.projectTitle}" as a ${inviteResult.role} on Nayaruvi Pulse.\n\nAccept your invitation and join the project here:\n${inviteResult.inviteLink}\n\nBest regards,\nNayaruvi Pulse Team`
+                          )}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#274245] hover:bg-[#1f3437] text-[#DFD6AE] font-bold text-[11px] transition-colors shadow-sm"
+                        >
+                          <Send size={13} /> Open in Mail App
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(inviteResult.inviteLink);
+                            }
+                            showStatus("Invite link copied to clipboard!");
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-border text-primary font-bold text-[11px] hover:bg-black/5 transition-colors cursor-pointer"
+                        >
+                          <Copy size={13} /> Copy Direct Link
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-text-secondary mt-1">
+                        💡 <strong>For zero-click automated server sending:</strong> Add a Google App Password to <code className="bg-black/5 px-1 py-0.5 rounded font-mono">backend/.env</code> under <code className="bg-black/5 px-1 py-0.5 rounded font-mono">SMTP_USER</code> and <code className="bg-black/5 px-1 py-0.5 rounded font-mono">SMTP_PASS</code>.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setInviteResult(null)}
+                  className="text-text-secondary hover:text-primary text-xs font-bold px-1.5 py-0.5 cursor-pointer rounded hover:bg-black/5"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
           </div>
         )}
 
@@ -356,38 +528,44 @@ export default function SettingsView({ activeWorkspaceId }) {
           </div>
 
           <div className="space-y-3">
-            {members.map(m => (
-              <div key={m.uid} className="p-3.5 rounded-xl bg-surface border border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center space-x-3">
-                  <img 
-                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(m.name || 'Member')}&background=274245&color=FAF7EC`} 
-                    alt="Avatar" 
-                    className="w-9 h-9 rounded-full border border-primary object-cover shrink-0" 
-                  />
-                  <div>
-                    <h4 className="text-xs font-bold text-primary">{m.name || 'Workspace Member'}</h4>
-                    <span className="text-[10px] text-text-secondary font-medium">{m.email || 'user@nayaruvi.com'}</span>
+            {members.map(m => {
+              const isMemberOwner = m.uid === workspace?.ownerId || m.uid === workspace?.createdBy || m.role === 'Owner';
+              return (
+                <div key={m.uid} className="p-3.5 rounded-xl bg-surface border border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <img 
+                      src={`https://ui-avatars.com/api/?name=${encodeURIComponent(m.name || 'Member')}&background=274245&color=FAF7EC`} 
+                      alt="Avatar" 
+                      className="w-9 h-9 rounded-full border border-primary object-cover shrink-0" 
+                    />
+                    <div>
+                      <h4 className="text-xs font-bold text-primary flex items-center gap-1.5">
+                        {m.name || 'Workspace Member'}
+                        {isMemberOwner && (
+                          <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300">
+                            Owner
+                          </span>
+                        )}
+                      </h4>
+                      <span className="text-[10px] text-text-secondary font-medium">{m.email || 'user@nayaruvi.com'}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] font-bold text-text-secondary">Workspace Role:</span>
+                    {isMemberOwner ? (
+                      <span className="text-xs font-bold text-amber-900 bg-amber-100/70 px-2.5 py-1 rounded-lg border border-amber-300">
+                        Workspace Owner
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-primary bg-surface px-2.5 py-1 rounded-lg border border-border">
+                        Member
+                      </span>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] font-bold text-text-secondary">Global Role:</span>
-                  {isPrivileged ? (
-                    <select 
-                      value={m.role || 'Member'}
-                      onChange={e => handleWorkspaceRoleChange(m.uid, e.target.value)}
-                      className="bg-surface text-xs font-bold text-primary border border-border rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                    >
-                      <option value="Founder">Founder</option>
-                      <option value="Co-Founder">Co-Founder</option>
-                      <option value="Member">Member</option>
-                    </select>
-                  ) : (
-                    <span className="text-xs font-bold text-primary bg-surface px-2.5 py-1.5 rounded-lg border border-border">{m.role || 'Member'}</span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

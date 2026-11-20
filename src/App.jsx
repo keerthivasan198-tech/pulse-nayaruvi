@@ -19,6 +19,7 @@ import NotificationManager from './components/NotificationManager';
 import SettingsView from './components/SettingsView';
 import ProfileModal from './components/ProfileModal';
 import TaskDetailModal from './components/TaskDetailModal';
+import { getUserProfile, saveUserProfile } from './services/firebaseService';
 
 function MainApp() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1280);
@@ -74,20 +75,48 @@ function MainApp() {
   }, [activeTab, activeWorkspaceId, activeProjectId, searchParams, setSearchParams]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        setUserProfile(prev => ({
-          ...prev,
-          email: currentUser.email || prev.email,
-          name: currentUser.displayName || prev.name || currentUser.email?.split('@')[0],
-          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || currentUser.email || 'User')}&background=274245&color=DFD6AE`,
-        }));
+        const defaultAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser.displayName || currentUser.email || 'User')}&background=274245&color=DFD6AE`;
+        const initialProfile = {
+          name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+          email: currentUser.email || '',
+          role: '',
+          avatar: currentUser.photoURL || defaultAvatar,
+          bio: ''
+        };
+        setUserProfile(initialProfile);
+
+        // Fetch user profile from Firebase Realtime Database
+        try {
+          const stored = await getUserProfile(currentUser.uid);
+          if (stored) {
+            setUserProfile(prev => ({
+              ...prev,
+              ...stored,
+              avatar: stored.avatar || prev.avatar
+            }));
+          }
+        } catch (err) {
+          console.warn("Could not load user profile from Firebase RTDB:", err);
+        }
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
+
+  const handleSaveProfile = async (updatedData) => {
+    if (!user) return;
+    try {
+      const saved = await saveUserProfile(user.uid, updatedData, activeWorkspaceId);
+      setUserProfile(prev => ({ ...prev, ...saved }));
+    } catch (err) {
+      console.error("Failed to save profile to Firebase:", err);
+      throw err;
+    }
+  };
 
   if (loading) {
     return (
@@ -194,7 +223,7 @@ function MainApp() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         profile={userProfile}
-        onSave={(updatedProfile) => setUserProfile(updatedProfile)}
+        onSave={handleSaveProfile}
       />
     </div>
   );

@@ -26,4 +26,8 @@ dist-ssr
 # Service Accounts and Secret Keys
 *serviceAccountKey*.json
 replace_theme.cjs
+.env
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins-dependencies
 

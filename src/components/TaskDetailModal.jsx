@@ -6,7 +6,11 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { motion } from 'framer-motion';
 import { db, auth } from '../firebase';
 import { ref, update, set, push, get } from 'firebase/database';
-import { getProject, updateTask, deleteTask, logActivity } from '../services/firebaseService';
+import { getProject, updateTask, deleteTask, logActivity, subscribeToProjectMembers, createInAppNotification } from '../services/firebaseService';
+
+const API_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost')
+  ? '/api'
+  : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
 export default function TaskDetailModal({ task, onClose, projectId, workspaceId }) {
   const [formData, setFormData] = useState({ ...task });
@@ -19,18 +23,11 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
   const effectiveWorkspaceId = workspaceId || task.workspaceId;
 
   useEffect(() => {
-    if (projectId) {
-      const fetchMembers = async () => {
-        try {
-          const proj = await getProject(effectiveWorkspaceId, projectId);
-          if (proj) {
-            setMembers(proj.members || []);
-          }
-        } catch (err) {
-          console.error("Failed to fetch members for task modal:", err);
-        }
-      };
-      fetchMembers();
+    if (projectId && effectiveWorkspaceId) {
+      const unsub = subscribeToProjectMembers(effectiveWorkspaceId, projectId, (list) => {
+        setMembers(list);
+      });
+      return () => unsub();
     }
   }, [effectiveWorkspaceId, projectId]);
 
@@ -70,9 +67,11 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
     setIsSaving(true);
     try {
       let updatedFormData = { ...formData };
-      
+      const currentUserName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'A team member';
+
       if (formData.assigneeId && formData.assigneeId !== task.assigneeId) {
-        updatedFormData.assignedBy = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0];
+        updatedFormData.assignedBy = currentUserName;
+        updatedFormData.assignedByEmail = auth.currentUser?.email || '';
       }
 
       await updateTask(effectiveWorkspaceId, projectId || task.projectId, task.id, {
@@ -82,16 +81,51 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
         updatedAt: new Date().toISOString()
       });
 
+      let projName = 'the project';
+      if (projectId || task.projectId) {
+        const proj = await getProject(effectiveWorkspaceId, projectId || task.projectId);
+        if (proj) projName = proj.title;
+      }
+
+      // 1. Dispatch email notification if assignee changed
       if (formData.assigneeId && formData.assigneeId !== task.assigneeId) {
-        let projName = 'the project';
-        if (projectId) {
-          const proj = await getProject(effectiveWorkspaceId, projectId);
-          if (proj) projName = proj.title;
+        const assignee = members.find(m => m.uid === formData.assigneeId);
+        if (assignee && API_URL) {
+          fetch(`${API_URL}/notify/task-assigned`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: formData.content || task.content,
+              assigneeEmail: assignee.email || '',
+              assigneeName: assignee.name || assignee.email.split('@')[0],
+              assigneeId: formData.assigneeId,
+              assignedByName: currentUserName,
+              projectTitle: projName,
+              priority: formData.priority || task.priority || 'Normal',
+              dueDate: formData.dueDate || task.dueDate || '',
+              workspaceId: effectiveWorkspaceId,
+              projectId: projectId || task.projectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Task assignment notification error:", e));
         }
 
-        const assignee = members.find(m => m.uid === formData.assigneeId);
+        // Direct in-app message
+        await createInAppNotification(formData.assigneeId, {
+          type: 'task_assigned',
+          title: 'New Task Assigned',
+          message: `${currentUserName} assigned you: "${formData.content || task.content}" in ${projName}`,
+          taskContent: formData.content || task.content,
+          assignedByName: currentUserName,
+          projectTitle: projName,
+          priority: formData.priority || task.priority || 'Normal',
+          dueDate: formData.dueDate || task.dueDate || '',
+          workspaceId: effectiveWorkspaceId,
+          projectId: projectId || task.projectId
+        });
+
         await logActivity(effectiveWorkspaceId, {
-          user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'A member',
+          user: currentUserName,
           action: 'assigned a task to',
           target: assignee ? (assignee.name || assignee.email) : 'someone',
           targetUserId: formData.assigneeId,
@@ -105,20 +139,37 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
         });
       }
 
+      // 2. Dispatch email notification to task creator if status changed
+      if (formData.status && formData.status !== task.status) {
+        const creatorEmail = task.creatorEmail || task.assignedByEmail;
+        if (creatorEmail && API_URL) {
+          fetch(`${API_URL}/notify/task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: formData.content || task.content,
+              previousStatus: task.status,
+              newStatus: formData.status,
+              updatedByName: currentUserName,
+              creatorEmail,
+              creatorName: task.creatorName || task.assignedBy || 'Task Creator',
+              projectTitle: projName,
+              workspaceId: effectiveWorkspaceId,
+              projectId: projectId || task.projectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Task status notification error:", e));
+        }
+      }
+
       // Notification for moving to review
       if (
         formData.status === 'col-review' && 
         task.status !== 'col-review' && 
         task.creatorId
       ) {
-        let projName = 'the project';
-        if (projectId) {
-          const proj = await getProject(effectiveWorkspaceId, projectId);
-          if (proj) projName = proj.title;
-        }
-        
         await logActivity(effectiveWorkspaceId, {
-          user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'A member',
+          user: currentUserName,
           action: 'sent task to review',
           targetUserId: task.creatorId,
           content: `Task "${formData.content}" is sent to review in ${projName}. Please review.`,
@@ -310,7 +361,9 @@ export default function TaskDetailModal({ task, onClose, projectId, workspaceId 
                     >
                       <option value="">Unassigned</option>
                       {members.map(m => (
-                        <option key={m.uid} value={m.uid}>{m.name}</option>
+                        <option key={m.uid} value={m.uid}>
+                          {m.name || m.email} ({m.role || 'Member'})
+                        </option>
                       ))}
                     </select>
                   </div>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, User, Mail, Shield, Camera, Check, LogOut } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, User, Mail, Shield, Camera, Check, LogOut, Loader2 } from 'lucide-react';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 
@@ -7,38 +7,85 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
   if (!isOpen) return null;
 
   const [formData, setFormData] = useState({
-    name: profile?.name || 'Manikandan',
-    email: profile?.email || 'manikandan@nayaruvi.com',
-    role: profile?.role || 'Product Manager',
-    avatar: profile?.avatar || 'https://ui-avatars.com/api/?name=Manikandan&background=2B2420&color=FAF8F5',
-    bio: profile?.bio || 'Building modern digital products at Nayaruvi.'
+    name: profile?.name || auth.currentUser?.displayName || '',
+    email: profile?.email || auth.currentUser?.email || '',
+    role: profile?.role || '',
+    avatar: profile?.avatar || auth.currentUser?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.name || auth.currentUser?.displayName || 'User')}&background=274245&color=DFD6AE`,
+    bio: profile?.bio || ''
   });
 
+  const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        name: profile?.name || auth.currentUser?.displayName || '',
+        email: profile?.email || auth.currentUser?.email || '',
+        role: profile?.role || '',
+        avatar: profile?.avatar || auth.currentUser?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.name || auth.currentUser?.displayName || 'User')}&background=274245&color=DFD6AE`,
+        bio: profile?.bio || ''
+      });
+    }
+  }, [profile, isOpen]);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert('File size too large. Please upload an image under 2MB.');
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size too large. Please upload an image under 5MB.');
         return;
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData({ ...formData, avatar: reader.result });
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 256;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          setFormData(prev => ({ ...prev, avatar: compressed }));
+        };
+        img.src = reader.result;
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSave(formData);
-    setIsSaved(true);
-    setTimeout(() => {
-      setIsSaved(false);
-      onClose();
-    }, 800);
+    setIsSaving(true);
+    try {
+      if (onSave) {
+        await onSave(formData);
+      }
+      setIsSaved(true);
+      setTimeout(() => {
+        setIsSaved(false);
+        onClose();
+      }, 900);
+    } catch (err) {
+      console.error("Save profile error:", err);
+      alert("Failed to save profile: " + (err.message || 'Error'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -145,9 +192,14 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }) {
               </button>
               <button 
                 type="submit" 
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold btn-matte-primary flex items-center justify-center cursor-pointer font-heading"
+                disabled={isSaving}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold btn-matte-primary flex items-center justify-center cursor-pointer font-heading disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {isSaved ? (
+                {isSaving ? (
+                  <span className="flex items-center">
+                    <Loader2 size={16} className="mr-1.5 animate-spin" /> Saving...
+                  </span>
+                ) : isSaved ? (
                   <span className="flex items-center">
                     <Check size={16} className="mr-1 text-emerald-400" /> Saved!
                   </span>

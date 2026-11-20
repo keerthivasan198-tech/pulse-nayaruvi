@@ -136,6 +136,11 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
   const activeWs = workspaces.find(w => w.id === activeWorkspaceId);
   const activeWsName = activeWs?.name || 'No Workspace';
   const activeWsInitial = activeWsName.charAt(0).toUpperCase();
+  const isActiveWsOwner = activeWs ? (
+    activeWs.ownerId === auth.currentUser?.uid || 
+    activeWs.createdBy === auth.currentUser?.uid || 
+    (activeWs.members && (activeWs.members[auth.currentUser?.uid]?.role === 'Owner' || activeWs.members[auth.currentUser?.uid]?.role === 'Founder'))
+  ) : false;
 
   const handleDeleteWorkspace = async (wsId, e) => {
     e.stopPropagation();
@@ -204,7 +209,14 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
             {activeWsInitial}
           </div>
           <div className="flex flex-col items-start truncate">
-            <span className="text-[9px] font-bold text-background/75 uppercase tracking-wider leading-tight">Workspace</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-bold text-background/75 uppercase tracking-wider leading-tight">Workspace</span>
+              {activeWs && (
+                <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-background/20 text-background">
+                  {isActiveWsOwner ? 'Owner' : 'Member'}
+                </span>
+              )}
+            </div>
             <span className="text-sm font-bold text-background truncate">{activeWsName}</span>
           </div>
         </div>
@@ -221,9 +233,16 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
               {activeWsInitial}
             </div>
             <div>
-              <h3 className="font-bold text-[#2B2420] text-sm truncate max-w-[170px] font-heading">{activeWsName}</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-bold text-[#2B2420] text-sm truncate max-w-[140px] font-heading">{activeWsName}</h3>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                  isActiveWsOwner ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {isActiveWsOwner ? 'Owner' : 'Member'}
+                </span>
+              </div>
               <p className="text-[11px] text-[#7D7268] font-medium">
-                {activeWs ? Object.keys(activeWs.members || {}).length : 0} members • Maison Privée
+                {activeWs ? Object.keys(activeWs.members || {}).length : 0} members • {isActiveWsOwner ? 'Created by you' : 'Invited Member'}
               </p>
             </div>
           </div>
@@ -244,22 +263,27 @@ export default function WorkspaceSelector({ activeWorkspaceId, setActiveWorkspac
           {/* Switch Workspaces */}
           <div className="p-2">
             <div className="px-2 py-1 text-[11px] font-bold text-text-secondary uppercase tracking-wider">Switch Workspaces</div>
-            <div className="max-h-[120px] overflow-y-auto custom-scrollbar">
+            <div className="max-h-[140px] overflow-y-auto custom-scrollbar">
               {workspaces.map(ws => {
                 const members = ws.membersList || (ws.members ? Object.values(ws.members) : []);
-                const isFounder = members.some(m => m.uid === auth.currentUser?.uid && m.role === 'Founder');
+                const isWsOwner = ws.ownerId === auth.currentUser?.uid || ws.createdBy === auth.currentUser?.uid || members.some(m => m.uid === auth.currentUser?.uid && (m.role === 'Owner' || m.role === 'Founder'));
                 return (
                   <div key={ws.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[#F3EFEA] transition-colors ${activeWorkspaceId === ws.id ? 'bg-primary/5' : ''}`}>
                     <button 
                       onClick={() => { setActiveWorkspaceId(ws.id); setIsOpen(false); }}
                       className={`flex-1 flex items-center text-sm font-medium ${activeWorkspaceId === ws.id ? 'text-primary font-bold' : 'text-text-primary'}`}
                     >
-                      <div className="w-6 h-6 rounded-md bg-primary text-white flex items-center justify-center font-bold text-xs mr-3 shadow-sm shrink-0">
+                      <div className="w-6 h-6 rounded-md bg-primary text-white flex items-center justify-center font-bold text-xs mr-2 shadow-sm shrink-0">
                         {ws.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="truncate max-w-[150px] text-left">{ws.name}</span>
+                      <span className="truncate max-w-[110px] text-left">{ws.name}</span>
+                      <span className={`ml-2 text-[8px] font-bold px-1.5 py-0.5 rounded ${
+                        isWsOwner ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {isWsOwner ? 'Owner' : 'Member'}
+                      </span>
                     </button>
-                    {isFounder && (
+                    {isWsOwner && (
                       <button 
                         onClick={(e) => handleDeleteWorkspace(ws.id, e)} 
                         className="text-gray-400 hover:text-rose-500 p-1.5 rounded-md hover:bg-rose-50 transition-colors shrink-0" 

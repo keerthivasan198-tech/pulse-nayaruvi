@@ -12,6 +12,7 @@ export default function InviteHandler() {
   const { projectId } = useParams();
   const [searchParams] = useSearchParams();
   const workspaceId = searchParams.get('workspaceId');
+  const inviteId = searchParams.get('inviteId');
   const navigate = useNavigate();
 
   const [authLoading, setAuthLoading] = useState(true);
@@ -65,8 +66,8 @@ export default function InviteHandler() {
 
       setStatus(`Adding you to "${projectData.title || 'Project'}"...`);
 
-      // Add user to workspace and project
-      await acceptProjectInvite(targetWsId, projectId, currentUser);
+      // Add user to workspace and project with explicit inviteId support
+      await acceptProjectInvite(targetWsId, projectId, currentUser, inviteId);
 
       setJoinedSuccess(true);
       setStatus(`Welcome! You are now a member of ${projectData.title || 'the project'}. Redirecting...`);

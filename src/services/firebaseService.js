@@ -1,4 +1,5 @@
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
+import { updateProfile } from 'firebase/auth';
 import { 
   ref, 
   push, 
@@ -30,12 +31,13 @@ export async function createWorkspace({ name, uid, email, displayName }) {
     name: safeName,
     createdAt: new Date().toISOString(),
     createdBy: uid,
+    ownerId: uid,
     members: {
       [uid]: {
         uid,
         email: safeEmail,
         name: safeDisplayName,
-        role: 'Founder'
+        role: 'Owner'
       }
     }
   };
@@ -180,6 +182,47 @@ export function subscribeToUserWorkspaces(uid, callback) {
   };
 }
 
+export function isWorkspaceOwner(workspace, uid) {
+  if (!workspace || !uid) return false;
+  if (workspace.ownerId === uid || workspace.createdBy === uid) return true;
+  const members = workspace.members;
+  if (members) {
+    if (members[uid]) {
+      const r = (members[uid].role || '').toLowerCase();
+      if (r === 'owner' || r === 'founder') return true;
+    }
+    if (Array.isArray(members)) {
+      const m = members.find(item => item.uid === uid);
+      if (m) {
+        const r = (m.role || '').toLowerCase();
+        if (r === 'owner' || r === 'founder') return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function subscribeToWorkspace(id, callback) {
+  if (!id) return () => {};
+  const wsRef = ref(db, `workspaces/${id}`);
+  return onValue(wsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      callback({
+        _id: id,
+        id,
+        ...data,
+        membersList: data.members ? Object.values(data.members) : []
+      });
+    } else {
+      callback(null);
+    }
+  }, (err) => {
+    console.warn("subscribeToWorkspace error:", err);
+    callback(null);
+  });
+}
+
 export async function getWorkspace(id) {
   if (!id) return null;
   const snapshot = await get(ref(db, `workspaces/${id}`));
@@ -211,13 +254,15 @@ export async function deleteWorkspace(id) {
 
 export async function addWorkspaceMember(workspaceId, { uid, name, email, role }) {
   if (!workspaceId || !uid) return;
-  let memberRole = role || 'Member';
+  let memberRole = 'Member';
   try {
-    const existingSnap = await get(ref(db, `workspaces/${workspaceId}/members/${uid}`));
-    if (existingSnap.exists()) {
-      const existing = existingSnap.val();
-      if (existing?.role && (existing.role === 'Founder' || existing.role === 'Admin')) {
-        memberRole = existing.role;
+    const wsSnap = await get(ref(db, `workspaces/${workspaceId}`));
+    if (wsSnap.exists()) {
+      const ws = wsSnap.val();
+      if (ws.ownerId === uid || ws.createdBy === uid) {
+        memberRole = 'Owner';
+      } else if (role && role !== 'Founder' && role !== 'Owner') {
+        memberRole = role;
       }
     }
   } catch (e) {}
@@ -253,6 +298,17 @@ export async function removeWorkspaceMember(workspaceId, uid) {
 
 export async function createProject({ title, status, workspaceId, uid, email, displayName, category, dueDays, dueDate }) {
   if (!title || !workspaceId) throw new Error('Project title and workspace ID are required');
+  if (!uid) throw new Error('User ID is required to create a project');
+
+  // Verify that the user is the Workspace Owner
+  const wsSnap = await get(ref(db, `workspaces/${workspaceId}`));
+  if (!wsSnap.exists()) {
+    throw new Error('Workspace not found');
+  }
+  const wsData = wsSnap.val();
+  if (!isWorkspaceOwner(wsData, uid)) {
+    throw new Error('Permission Denied: Only the Workspace Owner can create projects in this workspace.');
+  }
 
   const projRef = push(ref(db, `workspaces/${workspaceId}/projects`));
   const key = projRef.key;
@@ -271,6 +327,8 @@ export async function createProject({ title, status, workspaceId, uid, email, di
     status: safeStatus,
     category: safeCategory,
     workspaceId,
+    createdBy: uid,
+    ownerId: uid,
     createdAt: new Date().toISOString(),
     dueDate: safeDueDate,
     members: {}
@@ -480,28 +538,49 @@ export async function inviteProjectMember(workspaceId, projectId, { email, name,
   return inviteData;
 }
 
-export async function acceptProjectInvite(workspaceId, projectId, user) {
+export async function acceptProjectInvite(workspaceId, projectId, user, inviteId) {
   if (!workspaceId || !projectId || !user?.uid) {
     throw new Error("workspaceId, projectId, and user are required to accept invite");
   }
 
   // 1. Inherit role from invite record if available
   let assignedRole = 'Member';
+  let matchedInviteKey = null;
   const userEmail = (user.email || '').toLowerCase().trim();
+
   try {
-    const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
-    if (invitesSnap.exists()) {
-      const invites = invitesSnap.val();
-      for (const [key, inv] of Object.entries(invites)) {
-        if (inv.email && inv.email.toLowerCase().trim() === userEmail) {
-          if (inv.role) assignedRole = inv.role;
-          await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${key}`), {
-            status: 'Accepted',
-            acceptedAt: new Date().toISOString(),
-            acceptedUid: user.uid
-          });
+    // Check by inviteId first if present
+    if (inviteId) {
+      const singleSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${inviteId}`));
+      if (singleSnap.exists()) {
+        const inv = singleSnap.val();
+        if (inv?.role) assignedRole = inv.role;
+        matchedInviteKey = inviteId;
+      }
+    }
+
+    // Fallback: match by email if inviteId wasn't found or provided
+    if (!matchedInviteKey) {
+      const invitesSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites`));
+      if (invitesSnap.exists()) {
+        const invites = invitesSnap.val();
+        for (const [key, inv] of Object.entries(invites)) {
+          if (inv.email && inv.email.toLowerCase().trim() === userEmail) {
+            if (inv.role) assignedRole = inv.role;
+            matchedInviteKey = key;
+            break;
+          }
         }
       }
+    }
+
+    // Mark invite as accepted in Firebase
+    if (matchedInviteKey) {
+      await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/invites/${matchedInviteKey}`), {
+        status: 'Accepted',
+        acceptedAt: new Date().toISOString(),
+        acceptedUid: user.uid
+      });
     }
   } catch (e) {
     console.warn("Could not check/update invite status:", e);
@@ -548,6 +627,88 @@ export async function removeProjectMember(workspaceId, projectId, uid) {
   await remove(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${uid}`));
 }
 
+export function subscribeToProjectMembers(workspaceId, projectId, callback) {
+  if (!workspaceId) {
+    callback([]);
+    return () => {};
+  }
+
+  let isSubscribed = true;
+  let projMembersMap = {};
+  let wsMembersMap = {};
+
+  const notify = () => {
+    if (!isSubscribed) return;
+    const combined = { ...wsMembersMap };
+    Object.keys(projMembersMap).forEach(uid => {
+      combined[uid] = {
+        ...(combined[uid] || {}),
+        ...projMembersMap[uid]
+      };
+    });
+    const list = Object.values(combined);
+    callback(list);
+  };
+
+  const wsMembersRef = ref(db, `workspaces/${workspaceId}/members`);
+  const unsubWs = onValue(wsMembersRef, (snapshot) => {
+    if (snapshot.exists()) {
+      wsMembersMap = snapshot.val() || {};
+    } else {
+      wsMembersMap = {};
+    }
+    notify();
+  }, (err) => console.warn("wsMembers listener error:", err));
+
+  let unsubProj = () => {};
+  if (projectId) {
+    const projMembersRef = ref(db, `workspaces/${workspaceId}/projects/${projectId}/members`);
+    unsubProj = onValue(projMembersRef, (snapshot) => {
+      if (snapshot.exists()) {
+        projMembersMap = snapshot.val() || {};
+      } else {
+        projMembersMap = {};
+      }
+      notify();
+    }, (err) => console.warn("projMembers listener error:", err));
+  }
+
+  return () => {
+    isSubscribed = false;
+    unsubWs();
+    unsubProj();
+  };
+}
+
+export async function getProjectMembers(workspaceId, projectId) {
+  if (!workspaceId) return [];
+  try {
+    const combined = {};
+    const wsSnap = await get(ref(db, `workspaces/${workspaceId}/members`));
+    if (wsSnap.exists()) {
+      const wsMembers = wsSnap.val() || {};
+      Object.keys(wsMembers).forEach(uid => {
+        combined[uid] = wsMembers[uid];
+      });
+    }
+
+    if (projectId) {
+      const projSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members`));
+      if (projSnap.exists()) {
+        const projMembers = projSnap.val() || {};
+        Object.keys(projMembers).forEach(uid => {
+          combined[uid] = { ...(combined[uid] || {}), ...projMembers[uid] };
+        });
+      }
+    }
+
+    return Object.values(combined);
+  } catch (err) {
+    console.error("getProjectMembers error:", err);
+    return [];
+  }
+}
+
 // ==========================================
 // 3. TASKS (Hierarchical per Project in Workspace ONLY)
 // Path: /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}
@@ -560,8 +721,12 @@ export async function createTask(workspaceId, projectId, taskData) {
   const newTaskRef = push(baseRef);
   const key = newTaskRef.key;
 
+  const col = taskData.status || taskData.columnId || 'col-todo';
+
   const fullTask = {
     ...taskData,
+    status: col,
+    columnId: col,
     id: key,
     _id: key,
     projectId,
@@ -570,12 +735,37 @@ export async function createTask(workspaceId, projectId, taskData) {
   };
 
   await set(newTaskRef, fullTask);
+
+  // Sync assignee into project members if not already recorded
+  if (taskData.assigneeId) {
+    try {
+      const pmSnap = await get(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${taskData.assigneeId}`));
+      if (!pmSnap.exists()) {
+        await set(ref(db, `workspaces/${workspaceId}/projects/${projectId}/members/${taskData.assigneeId}`), {
+          uid: taskData.assigneeId,
+          name: taskData.assigneeName || 'Member',
+          email: taskData.assigneeEmail || '',
+          role: 'Member',
+          joinedAt: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.warn("Could not sync assignee to project members:", e);
+    }
+  }
+
   return fullTask;
 }
 
 export async function updateTask(workspaceId, projectId, taskId, updates) {
   if (!workspaceId || !projectId || !taskId) return;
-  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`), updates);
+  const syncUpdates = { ...updates };
+  if (syncUpdates.status && !syncUpdates.columnId) {
+    syncUpdates.columnId = syncUpdates.status;
+  } else if (syncUpdates.columnId && !syncUpdates.status) {
+    syncUpdates.status = syncUpdates.columnId;
+  }
+  await update(ref(db, `workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`), syncUpdates);
 }
 
 export async function deleteTask(workspaceId, projectId, taskId) {
@@ -687,4 +877,165 @@ export function subscribeToActivities(workspaceId, callback, limit = 50) {
       callback([]);
     }
   });
+}
+
+// ==========================================
+// 6. USER PROFILES
+// Path: /users/{uid}
+// ==========================================
+
+export async function getUserProfile(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await get(ref(db, `users/${uid}`));
+    if (snap.exists()) {
+      return snap.val();
+    }
+  } catch (err) {
+    console.warn("Could not fetch user profile from RTDB:", err.message);
+  }
+  return null;
+}
+
+export function subscribeToUserProfile(uid, callback) {
+  if (!uid) return () => {};
+  const userRef = ref(db, `users/${uid}`);
+  return onValue(userRef, (snap) => {
+    if (snap.exists()) {
+      callback(snap.val());
+    } else {
+      callback(null);
+    }
+  }, (err) => {
+    console.warn("subscribeToUserProfile error:", err);
+  });
+}
+
+export async function saveUserProfile(uid, profileData, activeWorkspaceId) {
+  if (!uid) throw new Error("User ID is required to save profile");
+
+  const cleanData = {
+    uid,
+    name: profileData.name || '',
+    displayName: profileData.name || '',
+    email: profileData.email || '',
+    bio: profileData.bio || '',
+    avatar: profileData.avatar || '',
+    photoURL: profileData.avatar || '',
+    role: profileData.role || '',
+    updatedAt: new Date().toISOString()
+  };
+
+  // 1. Save directly to /users/{uid} in Firebase Realtime Database
+  await set(ref(db, `users/${uid}`), cleanData);
+
+  // 2. Also update Firebase Auth profile (displayName & photoURL) if currentUser matches
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+    try {
+      // Firebase auth photoURL cannot exceed 2048 chars; if it's a URL, sync it
+      const authPhoto = cleanData.avatar && cleanData.avatar.startsWith('http') ? cleanData.avatar : undefined;
+      await updateProfile(auth.currentUser, {
+        displayName: cleanData.name,
+        ...(authPhoto ? { photoURL: authPhoto } : {})
+      });
+    } catch (authErr) {
+      console.warn("Could not update Firebase Auth profile:", authErr.message);
+    }
+  }
+
+  // 3. Sync member info in active workspace so team cards reflect updated name and avatar
+  if (activeWorkspaceId) {
+    try {
+      const memberRef = ref(db, `workspaces/${activeWorkspaceId}/members/${uid}`);
+      const mSnap = await get(memberRef);
+      if (mSnap.exists()) {
+        await update(memberRef, {
+          name: cleanData.name,
+          ...(cleanData.avatar ? { avatar: cleanData.avatar } : {})
+        });
+      }
+    } catch (wsErr) {
+      console.warn("Could not update workspace member card:", wsErr.message);
+    }
+  }
+
+  return cleanData;
+}
+
+
+// ==========================================
+// 8. NOTIFICATIONS & IN-APP MESSAGES
+// Path: /notifications/{uid}/{notificationId}
+// ==========================================
+
+export async function createInAppNotification(targetUid, notificationData) {
+  if (!targetUid) return null;
+  try {
+    const notifRef = push(ref(db, `notifications/${targetUid}`));
+    const notif = {
+      id: notifRef.key,
+      type: notificationData.type || 'task_assigned',
+      title: notificationData.title || 'New Task Assigned',
+      message: notificationData.message || 'A task was assigned to you',
+      taskContent: notificationData.taskContent || '',
+      assignedByName: notificationData.assignedByName || 'Team Lead',
+      projectTitle: notificationData.projectTitle || 'Project',
+      priority: notificationData.priority || 'Normal',
+      dueDate: notificationData.dueDate || '',
+      workspaceId: notificationData.workspaceId || '',
+      projectId: notificationData.projectId || '',
+      read: false,
+      timestamp: new Date().toISOString()
+    };
+    await set(notifRef, notif);
+    return notif;
+  } catch (err) {
+    console.warn("Could not save in-app notification:", err.message);
+    return null;
+  }
+}
+
+export function subscribeToNotifications(uid, callback) {
+  if (!uid) return () => {};
+  const notifRef = ref(db, `notifications/${uid}`);
+  return onValue(notifRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      callback([]);
+      return;
+    }
+    const val = snapshot.val();
+    const list = Object.keys(val).map(key => ({
+      id: key,
+      ...val[key]
+    })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    callback(list);
+  });
+}
+
+export async function markNotificationAsRead(uid, notificationId) {
+  if (!uid || !notificationId) return;
+  await update(ref(db, `notifications/${uid}/${notificationId}`), { read: true });
+}
+
+export async function deleteNotification(uid, notificationId) {
+  if (!uid || !notificationId) return;
+  await remove(ref(db, `notifications/${uid}/${notificationId}`));
+}
+
+export async function clearAllNotifications(uid) {
+  if (!uid) return;
+  await remove(ref(db, `notifications/${uid}`));
+}
+
+export async function markAllNotificationsAsRead(uid) {
+  if (!uid) return;
+  const snap = await get(ref(db, `notifications/${uid}`));
+  if (snap.exists()) {
+    const val = snap.val();
+    const updates = {};
+    Object.keys(val).forEach(k => {
+      updates[`${k}/read`] = true;
+    });
+    await update(ref(db, `notifications/${uid}`), updates);
+  }
 }

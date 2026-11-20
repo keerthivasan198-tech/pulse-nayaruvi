@@ -1,13 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth } from '../firebase';
 import { Folder, FolderOpen, Plus } from 'lucide-react';
-import { subscribeToProjects } from '../services/firebaseService';
+import { subscribeToProjects, subscribeToWorkspace, isWorkspaceOwner } from '../services/firebaseService';
 
 export default function ProjectSelector({ activeWorkspaceId, activeProjectId, setActiveProjectId, onNavigateToProjects }) {
+  const [workspace, setWorkspace] = useState(null);
   const [projects, setProjects] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setWorkspace(null);
+      return;
+    }
+    const unsubWs = subscribeToWorkspace(activeWorkspaceId, (ws) => {
+      setWorkspace(ws);
+    });
+    return () => unsubWs();
+  }, [activeWorkspaceId]);
+
+  const isOwner = auth.currentUser && workspace ? isWorkspaceOwner(workspace, auth.currentUser.uid) : false;
 
   useEffect(() => {
     if (!activeWorkspaceId || !auth.currentUser) {
@@ -139,7 +153,11 @@ export default function ProjectSelector({ activeWorkspaceId, activeProjectId, se
               }}
               className="w-full py-2.5 px-3 rounded-xl border border-dashed border-border text-text-primary hover:bg-surface hover:text-primary hover:border-primary transition-colors flex items-center justify-center text-xs font-bold"
             >
-              <Plus size={14} className="mr-1.5" /> Manage Projects
+              {isOwner ? (
+                <><Plus size={14} className="mr-1.5" /> Manage & Create Projects</>
+              ) : (
+                <><FolderOpen size={14} className="mr-1.5" /> View All Projects</>
+              )}
             </button>
           </div>
         </div>

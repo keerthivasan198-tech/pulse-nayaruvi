@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Plus, LayoutGrid, List as ListIcon, Calendar, Flag, MessageSquare, Paperclip, User, CheckCircle2 } from 'lucide-react';
+import { Plus, LayoutGrid, List as ListIcon, Calendar, Flag, MessageSquare, Paperclip, User, CheckCircle2, X } from 'lucide-react';
 import { auth } from '../firebase';
 import { 
   subscribeToTasks, 
   createTask, 
   updateTask, 
   subscribeToProjects, 
-  getProject, 
-  logActivity 
+  subscribeToProjectMembers, 
+  logActivity,
+  createInAppNotification 
 } from '../services/firebaseService';
 import TaskListView from './TaskListView';
 import TaskDetailModal from './TaskDetailModal';
@@ -22,6 +23,9 @@ const COLUMNS = {
   'col-completed': { id: 'col-completed', title: 'Completed', color: 'text-success', badge: 'bg-success/10 text-success' },
 };
 const COLUMN_ORDER = ['col-todo', 'col-progress', 'col-review', 'col-completed'];
+const API_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost')
+  ? '/api'
+  : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
 export default function TasksView({ activeWorkspaceId, activeProjectId }) {
   const [searchParams] = useSearchParams();
@@ -33,6 +37,16 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
   const [viewMode, setViewMode] = useState('board');
   const [selectedTask, setSelectedTask] = useState(null);
   const [projectMembers, setProjectMembers] = useState([]);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [modalTask, setModalTask] = useState({
+    content: '',
+    description: '',
+    status: 'col-todo',
+    priority: 'Normal',
+    dueDate: '',
+    assigneeId: '',
+    photoBase64: null
+  });
 
   useEffect(() => {
     if (!activeWorkspaceId || !auth.currentUser) {
@@ -60,23 +74,13 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
       setTasks(taskList);
     });
 
-    const fetchMembers = async () => {
-      try {
-        const proj = await getProject(activeWorkspaceId, activeProjectId);
-        if (proj) {
-          setProjectMembers(proj.members || []);
-        } else {
-          setProjectMembers([]);
-        }
-      } catch (err) {
-        console.error("Error fetching project members:", err);
-      }
-    };
-    
-    fetchMembers();
+    const unSubMembers = subscribeToProjectMembers(activeWorkspaceId, activeProjectId, (membersList) => {
+      setProjectMembers(membersList);
+    });
 
     return () => { 
       if (unSubTasks) unSubTasks(); 
+      if (unSubMembers) unSubMembers(); 
     };
   }, [activeWorkspaceId, activeProjectId]);
 
@@ -107,84 +111,212 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
     try {
       await updateTask(activeWorkspaceId, activeProjectId, draggableId, {
         status: destination.droppableId,
+        columnId: destination.droppableId,
         order: newOrder
       });
+
+      // Send status change notification email to task creator
+      if (destination.droppableId !== source.droppableId) {
+        const movedTask = tasks.find(t => t.id === draggableId);
+        const creatorEmail = movedTask?.creatorEmail || movedTask?.assignedByEmail;
+        if (creatorEmail && API_URL) {
+          fetch(`${API_URL}/notify/task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: movedTask.content || 'Task',
+              previousStatus: source.droppableId,
+              newStatus: destination.droppableId,
+              updatedByName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member',
+              creatorEmail,
+              creatorName: movedTask.creatorName || movedTask.assignedBy || 'Task Creator',
+              projectTitle: projects.find(p => p.id === activeProjectId)?.title || 'Project',
+              workspaceId: activeWorkspaceId,
+              projectId: activeProjectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Task status notification error:", e));
+        }
+      }
     } catch (error) {
       console.error("Move task error:", error);
     }
   };
 
-  const handleAddTask = async (e, columnId, taskData = {}) => {
-    e.preventDefault();
+  const currentProject = projects.find(p => p.id === activeProjectId);
+
+  const saveTask = async (taskInput) => {
     if (!activeProjectId) {
       alert("Please create or select a project before adding tasks.");
-      setActiveAddCol(null);
-      return;
+      return false;
     }
-    if (!newTaskContent.trim()) {
-      setActiveAddCol(null);
-      return;
+    const content = (taskInput.content || '').trim();
+    if (!content) {
+      alert("Please enter task content.");
+      return false;
     }
 
+    const columnId = taskInput.status || 'col-todo';
     const colTasks = getTasksByColumn(columnId);
     const lastOrder = colTasks.length > 0 ? (colTasks[colTasks.length - 1].order || 0) : 0;
     const order = lastOrder + 1000;
-    const projectTitle = projects.find(p => p.id === activeProjectId)?.title || 'General';
+    const projectTitle = currentProject?.title || 'General';
 
     try {
+      const creatorName = auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member';
+      const creatorEmail = auth.currentUser?.email || '';
+      const creatorId = auth.currentUser?.uid || '';
+      const assignee = taskInput.assigneeId ? projectMembers.find(m => m.uid === taskInput.assigneeId) : null;
+
       await createTask(activeWorkspaceId, activeProjectId, {
-        content: newTaskContent,
+        content: content,
         status: columnId,
         order: order,
         projectId: activeProjectId,
         project: projectTitle,
-        priority: taskData.priority || 'Normal',
-        assigneeId: taskData.assigneeId || '',
-        dueDate: taskData.dueDate || '',
-        description: '',
-        photoBase64: taskData.photoBase64 || null,
+        priority: taskInput.priority || 'Normal',
+        assigneeId: taskInput.assigneeId || '',
+        assigneeName: assignee?.name || assignee?.email || '',
+        assigneeEmail: assignee?.email || '',
+        creatorId,
+        creatorName,
+        creatorEmail,
+        assignedBy: creatorName,
+        assignedByEmail: creatorEmail,
+        dueDate: taskInput.dueDate || '',
+        description: taskInput.description || '',
+        photoBase64: taskInput.photoBase64 || null,
         createdAt: new Date().toISOString()
       });
 
-      if (taskData.assigneeId && taskData.assigneeId !== auth.currentUser?.uid) {
-        const assignee = projectMembers.find(m => m.uid === taskData.assigneeId);
+      // 1. Dispatch automated email & in-app notification to assignee
+      if (assignee && API_URL) {
+        fetch(`${API_URL}/notify/task-assigned`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskContent: content,
+            assigneeEmail: assignee.email || '',
+            assigneeName: assignee.name || assignee.email.split('@')[0],
+            assigneeId: taskInput.assigneeId || '',
+            assignedByName: creatorName,
+            projectTitle,
+            priority: taskInput.priority || 'Normal',
+            dueDate: taskInput.dueDate || '',
+            workspaceId: activeWorkspaceId,
+            projectId: activeProjectId,
+            origin: window.location.origin
+          })
+        }).catch(e => console.warn("Task assignment email dispatch error:", e));
+      }
+
+      // 2. Direct In-App Notification (visible in mobile app & web)
+      if (taskInput.assigneeId) {
+        await createInAppNotification(taskInput.assigneeId, {
+          type: 'task_assigned',
+          title: 'New Task Assigned',
+          message: `${creatorName} assigned you: "${content}" in ${projectTitle}`,
+          taskContent: content,
+          assignedByName: creatorName,
+          projectTitle,
+          priority: taskInput.priority || 'Normal',
+          dueDate: taskInput.dueDate || '',
+          workspaceId: activeWorkspaceId,
+          projectId: activeProjectId
+        });
+      }
+
+      if (taskInput.assigneeId && taskInput.assigneeId !== auth.currentUser?.uid) {
         await logActivity(activeWorkspaceId, {
-          user: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0],
+          user: creatorName,
           action: 'assigned a task to',
           target: assignee ? (assignee.name || assignee.email) : 'someone',
-          targetUserId: taskData.assigneeId,
-          content: newTaskContent,
+          targetUserId: taskInput.assigneeId,
+          content: content,
           type: 'task_assignment',
           workspaceId: activeWorkspaceId,
           projectId: activeProjectId || null,
           uid: auth.currentUser?.uid,
           timestamp: new Date().toISOString()
-        });
+        }).catch(() => {});
       }
 
-      setNewTaskContent('');
-      setActiveAddCol(null);
+      return true;
     } catch (error) {
       console.error("Add task error:", error);
-      alert("Failed to save task. Error: " + error.message);
+      alert("Failed to save task. Error: " + (error.message || 'Unknown error'));
+      return false;
+    }
+  };
+
+  const handleAddTask = async (e, columnId, taskData = {}) => {
+    e.preventDefault();
+    const success = await saveTask({
+      content: newTaskContent,
+      status: columnId,
+      ...taskData
+    });
+    if (success) {
+      setNewTaskContent('');
+      setActiveAddCol(null);
+    }
+  };
+
+  const handleModalSubmit = async (e) => {
+    e.preventDefault();
+    const success = await saveTask(modalTask);
+    if (success) {
+      setModalTask({
+        content: '',
+        description: '',
+        status: 'col-todo',
+        priority: 'Normal',
+        dueDate: '',
+        assigneeId: '',
+        photoBase64: null
+      });
+      setIsCreateModalOpen(false);
     }
   };
 
   return (
     <div className="flex h-full w-full flex-col p-4 md:p-8 bg-[#DFD6AE] overflow-hidden">
       
-      {/* Header & Toggles */}
+      {/* Header & Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 mb-6 shrink-0">
         <div>
-          <h2 className="text-3xl font-normal text-[#274245] tracking-wide mb-1 flex items-center font-heading uppercase">
-            Tasks
-          </h2>
+          <div className="flex items-center gap-2.5 mb-1">
+            <h2 className="text-3xl font-normal text-[#274245] tracking-wide flex items-center font-heading uppercase">
+              Tasks
+            </h2>
+            {currentProject && (
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#274245]/10 text-[#274245] border border-[#274245]/20">
+                {currentProject.title}
+              </span>
+            )}
+          </div>
           <p className="text-sm font-medium text-[#5C6E6F]">
-            Organize tasks, manage board columns, and assign creations.
+            {currentProject 
+              ? `Create tasks and assign them to members in "${currentProject.title}".` 
+              : 'Select a project to organize tasks, assign members, and track progress.'}
           </p>
         </div>
         
         <div className="flex items-center space-x-3">
+          <button 
+            onClick={() => {
+              if (!activeProjectId) {
+                alert("Please select or create a project first before creating tasks.");
+                return;
+              }
+              setIsCreateModalOpen(true);
+            }}
+            className="flex items-center px-4 py-2 bg-[#274245] text-[#DFD6AE] rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer hover:bg-[#1f3437] shadow-sm font-heading"
+          >
+            <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
+            New Task
+          </button>
+
           <div className="flex bg-[#FAF7EC]/70 backdrop-blur-md rounded-xl p-1 border border-[#D4C99E] shadow-xs">
             <button 
               onClick={() => setViewMode('list')}
@@ -203,43 +335,56 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
       </div>
       
       {/* Dynamic Content Area */}
-      <div className="flex-1 overflow-hidden relative">
-        {viewMode === 'board' ? (
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-4 h-full snap-x snap-mandatory">
-              {COLUMN_ORDER.map((columnId) => {
-                const column = COLUMNS[columnId];
-                const columnTasks = getTasksByColumn(columnId);
-                return (
-                  <KanbanColumn 
-                    key={column.id} 
-                    column={column} 
-                    tasks={columnTasks} 
-                    isAdding={activeAddCol === column.id}
-                    setIsAdding={(val) => setActiveAddCol(val ? column.id : null)}
-                    newTaskContent={newTaskContent}
-                    setNewTaskContent={setNewTaskContent}
-                    handleAddTask={(e, colId, taskData) => handleAddTask(e, colId, taskData)}
-                    onTaskClick={setSelectedTask}
-                    projectMembers={projectMembers}
-                    activeWorkspaceId={activeWorkspaceId}
-                    activeProjectId={activeProjectId}
-                  />
-                );
-              })}
-            </div>
-          </DragDropContext>
-        ) : (
-          <div className="h-full overflow-y-auto custom-scrollbar">
-            <TaskListView 
-              tasks={tasks} 
-              columns={COLUMN_ORDER} 
-              onTaskClick={setSelectedTask} 
-              projectMembers={projectMembers}
-            />
+      {!activeProjectId ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-[#FAF7EC]/60 rounded-2xl border border-dashed border-[#C9BD91]">
+          <div className="w-14 h-14 rounded-2xl bg-[#274245]/10 text-[#274245] flex items-center justify-center mb-3">
+            <CheckCircle2 size={28} />
           </div>
-        )}
-      </div>
+          <h3 className="text-lg font-bold text-[#274245] mb-1 font-heading">No Project Selected</h3>
+          <p className="text-xs text-[#5C6E6F] max-w-sm mb-4">
+            Please choose a project from the project dropdown above to view, create, and assign tasks to project members.
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden relative">
+          {viewMode === 'board' ? (
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-4 h-full snap-x snap-mandatory">
+                {COLUMN_ORDER.map((columnId) => {
+                  const column = COLUMNS[columnId];
+                  const columnTasks = getTasksByColumn(columnId);
+                  return (
+                    <KanbanColumn 
+                      key={column.id} 
+                      column={column} 
+                      tasks={columnTasks} 
+                      isAdding={activeAddCol === column.id}
+                      setIsAdding={(val) => setActiveAddCol(val ? column.id : null)}
+                      newTaskContent={newTaskContent}
+                      setNewTaskContent={setNewTaskContent}
+                      handleAddTask={(e, colId, taskData) => handleAddTask(e, colId, taskData)}
+                      onTaskClick={setSelectedTask}
+                      projectMembers={projectMembers}
+                      activeWorkspaceId={activeWorkspaceId}
+                      activeProjectId={activeProjectId}
+                    />
+                  );
+                })}
+              </div>
+            </DragDropContext>
+          ) : (
+            <div className="h-full overflow-y-auto custom-scrollbar">
+              <TaskListView 
+                tasks={tasks} 
+                columns={COLUMN_ORDER} 
+                onTaskClick={setSelectedTask} 
+                projectMembers={projectMembers}
+                onAddTaskClick={() => setIsCreateModalOpen(true)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Task Detail Modal Overlay */}
       {selectedTask && (
@@ -249,6 +394,181 @@ export default function TasksView({ activeWorkspaceId, activeProjectId }) {
           workspaceId={activeWorkspaceId}
           onClose={() => setSelectedTask(null)} 
         />
+      )}
+
+      {/* Dedicated Create Task & Assign Modal */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-[#FAF7EC] rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-[#DDD5CC] animate-in fade-in zoom-in duration-200 text-[#274245]">
+            <div className="flex justify-between items-center mb-5 border-b border-[#DDD5CC] pb-3">
+              <div>
+                <h3 className="text-xl font-bold font-heading uppercase tracking-wide text-[#274245]">Create New Task</h3>
+                <p className="text-xs text-[#5C6E6F] mt-0.5">
+                  Project: <span className="font-bold text-[#274245]">{currentProject?.title || 'Selected Project'}</span>
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsCreateModalOpen(false)} 
+                className="text-[#5C6E6F] hover:text-[#274245] p-1 rounded-lg hover:bg-black/5"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleModalSubmit} className="space-y-4">
+              {/* Task Title */}
+              <div>
+                <label className="block text-xs font-bold text-[#274245] mb-1.5">Task Title *</label>
+                <input 
+                  type="text" 
+                  required
+                  autoFocus
+                  value={modalTask.content}
+                  onChange={e => setModalTask({ ...modalTask, content: e.target.value })}
+                  placeholder="e.g. Implement user authentication screen"
+                  className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3.5 py-2.5 text-sm font-medium text-[#274245] focus:outline-none focus:border-[#274245]"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-bold text-[#274245] mb-1.5">Description (Optional)</label>
+                <textarea 
+                  rows={3}
+                  value={modalTask.description}
+                  onChange={e => setModalTask({ ...modalTask, description: e.target.value })}
+                  placeholder="Add details, expectations, or instructions for the assignee..."
+                  className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3.5 py-2 text-xs font-medium text-[#274245] focus:outline-none focus:border-[#274245]"
+                />
+              </div>
+
+              {/* Assignee & Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Assignee Option */}
+                <div>
+                  <label className="block text-xs font-bold text-[#274245] mb-1.5 flex items-center">
+                    <User size={13} className="mr-1 text-[#274245]" /> Assign Member
+                  </label>
+                  <select 
+                    value={modalTask.assigneeId}
+                    onChange={e => setModalTask({ ...modalTask, assigneeId: e.target.value })}
+                    className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3 py-2 text-xs font-bold text-[#274245] focus:outline-none focus:border-[#274245] cursor-pointer"
+                  >
+                    <option value="">Unassigned</option>
+                    {projectMembers.map(m => (
+                      <option key={m.uid} value={m.uid}>
+                        {m.name || m.email} ({m.role || 'Member'})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-[#5C6E6F] mt-1 block">
+                    {projectMembers.length} member{projectMembers.length === 1 ? '' : 's'} in this project
+                  </span>
+                </div>
+
+                {/* Status Column */}
+                <div>
+                  <label className="block text-xs font-bold text-[#274245] mb-1.5">Initial Status</label>
+                  <select 
+                    value={modalTask.status}
+                    onChange={e => setModalTask({ ...modalTask, status: e.target.value })}
+                    className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3 py-2 text-xs font-bold text-[#274245] focus:outline-none focus:border-[#274245] cursor-pointer"
+                  >
+                    {COLUMN_ORDER.map(colId => (
+                      <option key={colId} value={colId}>{COLUMNS[colId].title}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Priority & Due Date */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#274245] mb-1.5 flex items-center">
+                    <Flag size={13} className="mr-1 text-[#274245]" /> Priority
+                  </label>
+                  <select 
+                    value={modalTask.priority}
+                    onChange={e => setModalTask({ ...modalTask, priority: e.target.value })}
+                    className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3 py-2 text-xs font-bold text-[#274245] focus:outline-none focus:border-[#274245] cursor-pointer"
+                  >
+                    <option value="Urgent">Urgent</option>
+                    <option value="High">High</option>
+                    <option value="Normal">Normal</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#274245] mb-1.5 flex items-center">
+                    <Calendar size={13} className="mr-1 text-[#274245]" /> Due Date
+                  </label>
+                  <input 
+                    type="date"
+                    value={modalTask.dueDate}
+                    onChange={e => setModalTask({ ...modalTask, dueDate: e.target.value })}
+                    className="w-full bg-white border border-[#DDD5CC] rounded-xl px-3 py-2 text-xs font-medium text-[#274245] focus:outline-none focus:border-[#274245] cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Optional Attachment */}
+              <div>
+                <label className="block text-xs font-bold text-[#274245] mb-1.5 flex items-center">
+                  <Paperclip size={13} className="mr-1 text-[#274245]" /> Attachment (Optional)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <label className="cursor-pointer px-3 py-1.5 rounded-lg border border-dashed border-[#DDD5CC] hover:border-[#274245] text-xs font-bold bg-white text-[#274245] transition-colors flex items-center">
+                    <Paperclip size={13} className="mr-1.5" /> {modalTask.photoBase64 ? 'Change Image' : 'Attach Image'}
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) return alert('File too large (Max 2MB)');
+                          const reader = new FileReader();
+                          reader.onloadend = () => setModalTask(prev => ({ ...prev, photoBase64: reader.result }));
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                  {modalTask.photoBase64 && (
+                    <div className="flex items-center gap-2">
+                      <img src={modalTask.photoBase64} alt="preview" className="w-8 h-8 rounded object-cover border border-[#DDD5CC]" />
+                      <button 
+                        type="button" 
+                        onClick={() => setModalTask(prev => ({ ...prev, photoBase64: null }))}
+                        className="text-xs text-rose-600 hover:underline font-bold"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-[#DDD5CC] flex justify-end space-x-2">
+                <button 
+                  type="button" 
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold border border-[#DDD5CC] text-[#274245] hover:bg-black/5"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-5 py-2 rounded-xl text-xs font-bold btn-matte-primary flex items-center shadow-sm"
+                >
+                  <Plus size={14} className="mr-1" /> Create & Assign Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -338,11 +658,13 @@ function KanbanColumn({ column, tasks, isAdding, setIsAdding, newTaskContent, se
                     <select 
                       value={assigneeId} 
                       onChange={e => setAssigneeId(e.target.value)}
-                      className="bg-transparent focus:outline-none cursor-pointer w-full"
+                      className="bg-transparent focus:outline-none cursor-pointer w-full text-xs font-semibold text-[#274245]"
                     >
-                      <option value="">Add assignee</option>
+                      <option value="">Unassigned (Select member)</option>
                       {projectMembers.map(m => (
-                        <option key={m.uid} value={m.uid}>{m.name}</option>
+                        <option key={m.uid} value={m.uid}>
+                          {m.name || m.email} ({m.role || 'Member'})
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -422,7 +744,33 @@ function KanbanCard({ task, index, onTaskClick, projectMembers = [], activeWorks
   const handleComplete = async (e) => {
     e.stopPropagation();
     try {
-      await updateTask(task.workspaceId || activeWorkspaceId, task.projectId || activeProjectId, task.id, { status: 'col-completed' });
+      if (task.status !== 'col-completed') {
+        await updateTask(task.workspaceId || activeWorkspaceId, task.projectId || activeProjectId, task.id, { 
+          status: 'col-completed',
+          columnId: 'col-completed'
+        });
+        
+        // Notify task creator that task was completed
+        const creatorEmail = task.creatorEmail || task.assignedByEmail;
+        if (creatorEmail && API_URL) {
+          fetch(`${API_URL}/notify/task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskContent: task.content || 'Task',
+              previousStatus: task.status,
+              newStatus: 'col-completed',
+              updatedByName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Team Member',
+              creatorEmail,
+              creatorName: task.creatorName || task.assignedBy || 'Task Creator',
+              projectTitle: task.project || 'Project',
+              workspaceId: task.workspaceId || activeWorkspaceId,
+              projectId: task.projectId || activeProjectId,
+              origin: window.location.origin
+            })
+          }).catch(e => console.warn("Complete task notification error:", e));
+        }
+      }
     } catch (err) {
       console.error("Complete task error:", err);
     }

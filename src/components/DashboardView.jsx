@@ -1,22 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, Clock, FolderOpen, 
-  Plus, X
+  Plus, X, Shield 
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { 
   subscribeToProjects, 
   subscribeToActivities, 
+  subscribeToWorkspace,
+  isWorkspaceOwner,
   createProject, 
   logActivity 
 } from '../services/firebaseService';
 
 export default function DashboardView({ activeWorkspaceId }) {
+  const [workspace, setWorkspace] = useState(null);
   const [projects, setProjects] = useState([]);
   const [activities, setActivities] = useState([]);
   
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [newProject, setNewProject] = useState({ title: '', category: '', dueDays: '7' });
+
+  // Subscribe to current workspace for ownership checks
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setWorkspace(null);
+      return;
+    }
+    const unsubWs = subscribeToWorkspace(activeWorkspaceId, (ws) => {
+      setWorkspace(ws);
+    });
+    return () => unsubWs();
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     if (!activeWorkspaceId || !auth.currentUser) {
@@ -42,8 +57,14 @@ export default function DashboardView({ activeWorkspaceId }) {
     };
   }, [activeWorkspaceId]);
 
+  const isOwner = auth.currentUser && workspace ? isWorkspaceOwner(workspace, auth.currentUser.uid) : false;
+
   const handleCreateProject = async (e) => {
     e.preventDefault();
+    if (!isOwner) {
+      alert("Permission Denied: Only the Workspace Owner can create projects in this workspace.");
+      return;
+    }
     const trimmedTitle = newProject.title.trim();
     if (!trimmedTitle) {
       alert("Please enter a project title.");
@@ -96,20 +117,40 @@ export default function DashboardView({ activeWorkspaceId }) {
         {/* Welcome Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 mb-8">
           <div>
-            <h2 className="text-3xl font-normal text-primary tracking-wide mb-1 font-heading uppercase">
-              Workspace Overview
-            </h2>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-3xl font-normal text-primary tracking-wide font-heading uppercase">
+                Workspace Overview
+              </h2>
+              {workspace && (
+                <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                  isOwner 
+                    ? 'bg-amber-500/15 text-amber-800 border-amber-500/30' 
+                    : 'bg-primary/10 text-primary border-primary/20'
+                }`}>
+                  {isOwner ? 'Workspace Owner' : 'Invited Member'}
+                </span>
+              )}
+            </div>
             <p className="text-sm font-medium text-text-secondary">
-              A curated view of your active creations and team movements.
+              {isOwner 
+                ? 'Overview of your workspace projects and real-time team collaboration.' 
+                : 'Viewing workspace projects. Project creation is reserved for the Workspace Owner.'}
             </p>
           </div>
-          <button 
-            onClick={() => setIsProjectModalOpen(true)}
-            className="flex items-center px-5 py-2.5 btn-matte-primary rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer font-heading"
-          >
-            <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
-            New Project
-          </button>
+          {isOwner ? (
+            <button 
+              onClick={() => setIsProjectModalOpen(true)}
+              className="flex items-center px-5 py-2.5 btn-matte-primary rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer font-heading"
+            >
+              <Plus size={16} className="mr-1.5" strokeWidth={2.5} />
+              New Project
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-border text-text-secondary text-xs font-semibold shadow-xs">
+              <Shield size={14} className="text-amber-600 shrink-0" />
+              <span>Only Owner can create projects</span>
+            </div>
+          )}
         </div>
 
         {/* Stats Row */}
@@ -147,7 +188,19 @@ export default function DashboardView({ activeWorkspaceId }) {
                   <FolderOpen size={24} className="text-primary" />
                 </div>
                 <h4 className="text-primary font-bold text-sm mb-1 font-heading">No Projects Found</h4>
-                <p className="font-medium text-xs max-w-xs mx-auto text-text-secondary">Create your first project in this workspace to start tracking tasks and activity.</p>
+                <p className="font-medium text-xs max-w-sm mx-auto text-text-secondary mb-3">
+                  {isOwner 
+                    ? 'Create your first project in this workspace to start tracking tasks and activity.' 
+                    : 'No projects have been created in this workspace yet. Only the Workspace Owner can create projects.'}
+                </p>
+                {isOwner && (
+                  <button 
+                    onClick={() => setIsProjectModalOpen(true)}
+                    className="inline-flex items-center px-4 py-2 bg-primary text-background rounded-xl font-bold text-xs hover:bg-primary-hover transition-colors font-heading"
+                  >
+                    <Plus size={14} className="mr-1.5" /> Create Project
+                  </button>
+                )}
               </div>
             ) : (
               projects.map((proj, i) => (

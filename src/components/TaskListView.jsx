@@ -1,7 +1,7 @@
 import React from 'react';
-import { Calendar, Flag, User, CheckCircle2, MessageSquare, Paperclip } from 'lucide-react';
+import { Calendar, Flag, User, CheckCircle2, MessageSquare, Paperclip, Plus } from 'lucide-react';
 
-export default function TaskListView({ tasks, columns, onTaskClick, projectMembers = [] }) {
+export default function TaskListView({ tasks, columns, onTaskClick, projectMembers = [], onAddTaskClick }) {
   // Group tasks by column
   const groupedTasks = columns.map(colId => {
     return {
@@ -36,10 +36,19 @@ export default function TaskListView({ tasks, columns, onTaskClick, projectMembe
           <div key={group.id} className="mb-2">
             
             {/* Group Header */}
-            <div className="px-6 py-3 bg-surface flex items-center">
+            <div className="px-6 py-3 bg-surface flex items-center justify-between">
               <span className="bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-md mr-2 flex items-center shadow-sm shadow-primary/20">
                 {group.title} <span className="ml-2 opacity-80">{group.tasks.length}</span>
               </span>
+              {onAddTaskClick && (
+                <button
+                  type="button"
+                  onClick={onAddTaskClick}
+                  className="flex items-center gap-1 text-[11px] font-bold text-text-secondary hover:text-primary transition-colors cursor-pointer"
+                >
+                  <Plus size={13} /> Add Task
+                </button>
+              )}
             </div>
 
             {/* Task Rows */}

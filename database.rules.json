@@ -1,21 +1,29 @@
 {
   "rules": {
     ".read": "auth != null",
-    ".write": "auth != null",
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null"
+      }
+    },
     "workspaces": {
+      ".read": "auth != null",
       "$workspaceId": {
         ".read": "auth != null",
-        ".write": "auth != null",
+        ".write": "auth != null && ((!data.exists() && (newData.child('ownerId').val() === auth.uid || newData.child('createdBy').val() === auth.uid)) || (data.exists() && (data.child('ownerId').val() === auth.uid || data.child('createdBy').val() === auth.uid || data.child('members').child(auth.uid).child('role').val() === 'Owner' || data.child('members').child(auth.uid).child('role').val() === 'Founder')))",
         "members": {
           ".read": "auth != null",
-          ".write": "auth != null"
+          "$memberUid": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
         },
         "projects": {
           ".read": "auth != null",
-          ".write": "auth != null",
           "$projectId": {
             ".read": "auth != null",
-            ".write": "auth != null",
+            ".write": "auth != null && (data.exists() || root.child('workspaces').child($workspaceId).child('ownerId').val() === auth.uid || root.child('workspaces').child($workspaceId).child('createdBy').val() === auth.uid || root.child('workspaces').child($workspaceId).child('members').child(auth.uid).child('role').val() === 'Owner' || root.child('workspaces').child($workspaceId).child('members').child(auth.uid).child('role').val() === 'Founder')",
             "members": {
               ".read": "auth != null",
               ".write": "auth != null"
@@ -25,6 +33,10 @@
               ".write": "auth != null"
             },
             "checklist": {
+              ".read": "auth != null",
+              ".write": "auth != null"
+            },
+            "invites": {
               ".read": "auth != null",
               ".write": "auth != null"
             }
@@ -38,9 +50,23 @@
     },
     "user_workspaces": {
       "$uid": {
-        ".read": "auth != null && auth.uid == $uid",
+        ".read": "auth != null",
         ".write": "auth != null"
       }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "dashboard_tasks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "dashboard_activity": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }
