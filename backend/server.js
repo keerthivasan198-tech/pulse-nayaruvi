@@ -15,13 +15,33 @@ const dbUrl = process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DAT
 let hasServiceAccount = false;
 
 try {
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = require(serviceAccountPath);
+  let serviceAccount = null;
+
+  // 1. Check for FIREBASE_SERVICE_ACCOUNT environment variable (ideal for Render deployment)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      serviceAccount = raw.startsWith('{') 
+        ? JSON.parse(raw) 
+        : JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    } catch (parseErr) {
+      console.warn("⚠️ Could not parse FIREBASE_SERVICE_ACCOUNT env var:", parseErr.message);
+    }
+  }
+
+  // 2. Fallback to serviceAccountKey.json file if present
+  if (!serviceAccount && fs.existsSync(serviceAccountPath)) {
+    try {
+      serviceAccount = require(serviceAccountPath);
+    } catch (fsErr) {
+      console.warn("⚠️ Could not load serviceAccountKey.json:", fsErr.message);
+    }
+  }
+
+  if (serviceAccount) {
     if (serviceAccount.project_id && dbUrl && !dbUrl.includes(serviceAccount.project_id)) {
-      console.warn(`⚠️ serviceAccountKey.json is for project "${serviceAccount.project_id}", but FIREBASE_DATABASE_URL is "${dbUrl}". Skipping mismatched serviceAccountKey.json.`);
-      initializeApp({
-        databaseURL: dbUrl
-      });
+      console.warn(`⚠️ Service account is for project "${serviceAccount.project_id}", but FIREBASE_DATABASE_URL is "${dbUrl}". Skipping mismatched credentials.`);
+      initializeApp({ databaseURL: dbUrl });
       console.log('✅ Connected to Firebase via databaseURL');
     } else {
       initializeApp({
@@ -29,18 +49,18 @@ try {
         databaseURL: dbUrl
       });
       hasServiceAccount = true;
-      console.log('✅ Connected to Firebase via serviceAccountKey.json');
+      console.log('✅ Connected to Firebase via Service Account');
     }
   } else {
     // If no service account, initialize with databaseURL
-    initializeApp({
-      databaseURL: dbUrl
-    });
-    console.log('ℹ️ Firebase Admin initialized with databaseURL (client handles RTDB updates)');
+    initializeApp({ databaseURL: dbUrl });
+    console.log('ℹ️ Firebase Admin initialized with databaseURL');
   }
 } catch (err) {
   console.error('❌ Firebase Admin initialization error:', err);
-  process.exit(1);
+  try {
+    initializeApp({ databaseURL: dbUrl });
+  } catch (_) {}
 }
 
 const db = getDatabase();
@@ -838,7 +858,7 @@ app.get('/api/activity/:workspaceId', async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => console.log(`🚀 Backend server running on port ${PORT} with Firebase RTDB`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend server running on port ${PORT} with Firebase RTDB`));
 }
 
 module.exports = app;
