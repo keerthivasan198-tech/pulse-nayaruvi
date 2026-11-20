@@ -8,6 +8,7 @@ import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import WorkspaceSelector from './WorkspaceSelector';
 import ProjectSelector from './ProjectSelector';
+import PulseLogo from './PulseLogo';
 
 export default function Sidebar({ 
   isOpen, setIsOpen, activeTab, setActiveTab, 
@@ -23,7 +24,7 @@ export default function Sidebar({
     <aside className={`${baseClasses} ${mobileClasses} ${translateClass}`}>
       {/* Brand Logo */}
       <div className="h-[72px] flex items-center px-6 cursor-pointer shrink-0">
-        <img src="/logo.png" alt="Nayaruvi Logo" className="w-12 h-12 mr-3.5 object-contain" />
+        <PulseLogo id="app-brand-logo" className="w-11 h-11 mr-3.5" />
         <div className="flex flex-col">
           <span className="text-2xl font-bold tracking-widest text-background leading-none font-heading uppercase">Nayaruvi</span>
           <span className="text-[9px] font-bold text-background/90 tracking-widest uppercase mt-1">Pulse</span>

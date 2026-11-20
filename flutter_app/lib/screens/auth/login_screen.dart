@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../constants/theme.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/pulse_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -119,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.bolt, color: PulseTheme.accent, size: 24),
+                          const PulseLogo(width: 26, height: 26),
                           const SizedBox(width: 8),
                           Text(
                             'NAYARUVI',

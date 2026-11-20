@@ -19,6 +19,7 @@ import NotificationManager from './components/NotificationManager';
 import SettingsView from './components/SettingsView';
 import ProfileModal from './components/ProfileModal';
 import TaskDetailModal from './components/TaskDetailModal';
+import SplashIntro from './components/SplashIntro';
 import { getUserProfile, saveUserProfile } from './services/firebaseService';
 
 function MainApp() {
@@ -120,9 +121,7 @@ function MainApp() {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <div className="w-8 h-8 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
-      </div>
+      <div className="flex h-screen w-full items-center justify-center bg-[#FDF9ED]" />
     );
   }
 
@@ -230,8 +229,11 @@ function MainApp() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <BrowserRouter>
+      {showSplash && <SplashIntro onComplete={() => setShowSplash(false)} />}
       <Routes>
         <Route path="/invite/:projectId" element={<InviteHandler />} />
         <Route path="/invite-ws/:workspaceId" element={<WorkspaceInviteHandler />} />

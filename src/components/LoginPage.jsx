@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { Mail, Lock, LogIn, CheckCircle2, ChevronRight, Activity, AlertCircle, User, UserPlus } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import PulseLogo from './PulseLogo';
 
 export default function LoginPage({ inviteInfo }) {
   const [searchParams] = useSearchParams();
@@ -97,10 +98,18 @@ export default function LoginPage({ inviteInfo }) {
     setError('');
     setLoading(true);
     try {
-      try {
-        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
-      } catch (persistErr) {
-        console.warn("Could not set auth persistence:", persistErr);
+      if (!rememberMe) {
+        try {
+          await setPersistence(auth, browserSessionPersistence);
+        } catch (persistErr) {
+          console.warn("Could not set session persistence:", persistErr);
+        }
+      } else {
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+        } catch (persistErr) {
+          console.warn("Could not set local persistence:", persistErr);
+        }
       }
 
       if (isSignUp) {
@@ -121,16 +130,22 @@ export default function LoginPage({ inviteInfo }) {
   const handleGoogleLogin = async () => {
     setError('');
     try {
-      try {
-        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
-      } catch (persistErr) {
-        console.warn("Could not set auth persistence:", persistErr);
+      if (!rememberMe) {
+        try {
+          await setPersistence(auth, browserSessionPersistence);
+        } catch (persistErr) {
+          console.warn("Could not set session persistence:", persistErr);
+        }
       }
 
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
       handleRedirect();
     } catch (err) {
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        return;
+      }
       setError(formatAuthError(err));
     }
   };
@@ -143,7 +158,7 @@ export default function LoginPage({ inviteInfo }) {
       <div className="hidden lg:flex flex-col w-[50%] bg-[#FDF9ED] border-r border-border overflow-hidden">
         {/* Logo */}
         <div className="flex items-center p-10 pb-6 shrink-0">
-          <img src="/logo.png" alt="Nayaruvi Logo" className="w-12 h-12 mr-3 object-contain" />
+          <PulseLogo id="login-brand-logo" className="w-12 h-12 mr-3" />
           <div>
             <h1 className="font-bold text-2xl text-primary tracking-tight uppercase font-heading leading-tight">Nayaruvi</h1>
             <span className="text-[11px] font-bold text-primary/80 tracking-widest uppercase block leading-none mt-1">Pulse</span>
@@ -159,6 +174,15 @@ export default function LoginPage({ inviteInfo }) {
       {/* Right Side - Login Card */}
       <div className="flex-1 flex flex-col items-center justify-center p-12 bg-background relative">
         <div className="w-full max-w-[420px]">
+          
+          {/* Mobile Brand Header */}
+          <div className="lg:hidden flex items-center justify-center space-x-3 mb-6">
+            <PulseLogo className="w-10 h-10" />
+            <div className="text-left">
+              <h1 className="font-bold text-xl text-primary tracking-tight uppercase font-heading leading-tight">Nayaruvi</h1>
+              <span className="text-[10px] font-bold text-primary/80 tracking-widest uppercase block leading-none">Pulse</span>
+            </div>
+          </div>
           
           {(inviteInfo || searchParams.get('invite')) && (
             <div className="mb-6 p-4 rounded-2xl bg-[#274245]/10 border border-[#274245]/20 text-text-primary text-sm flex items-start space-x-3.5 shadow-sm">

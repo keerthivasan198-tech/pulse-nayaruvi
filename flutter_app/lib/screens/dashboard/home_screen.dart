@@ -10,6 +10,7 @@ import 'notifications_sheet.dart';
 import '../checklist/checklist_screen.dart';
 import '../activity/activity_screen.dart';
 import '../profile/profile_screen.dart';
+import '../../widgets/pulse_logo.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -100,14 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: PulseTheme.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.bolt, color: PulseTheme.accent, size: 20),
-            ),
+            const PulseLogo(width: 34, height: 34),
             const SizedBox(width: 10),
             // Workspace Dropdown Selector
             Expanded(

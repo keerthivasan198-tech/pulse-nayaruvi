@@ -8,6 +8,7 @@ import 'providers/app_state.dart';
 import 'services/notification_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/home_screen.dart';
+import 'widgets/splash_intro_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +36,9 @@ class NayaruviPulseApp extends StatelessWidget {
       title: 'Nayaruvi Pulse',
       debugShowCheckedModeBanner: false,
       theme: PulseTheme.lightTheme,
-      home: const AuthGate(),
+      home: const SplashIntroOverlay(
+        child: AuthGate(),
+      ),
     );
   }
 }
